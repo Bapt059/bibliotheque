@@ -938,11 +938,15 @@ function normalizeTool(t) {
     tags: Array.isArray(t.tags) ? t.tags : [],
     thumbnail: t.thumbnail || null,
     addedAt: t.addedAt || Date.now(),
+    updatedAt: t.updatedAt || t.addedAt || Date.now(),
     lastOpened: t.lastOpened || 0,
     favorite: !!t.favorite,
     position: typeof t.position === "number" ? t.position : Date.now(),
     // Données internes de l'outil (synchronisées via Gist) — mirror du localStorage de l'iframe
-    data: (t.data && typeof t.data === "object") ? t.data : {}
+    data: (t.data && typeof t.data === "object") ? t.data : {},
+    // Tombstones (soft-delete) — indispensable pour que le filtre dans refresh() exclue les outils supprimés
+    deleted: !!t.deleted,
+    deletedAt: t.deletedAt || 0
   };
 }
 
