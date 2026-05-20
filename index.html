@@ -14,6 +14,14 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='50%25' y='50%25' font-size='26' text-anchor='middle' dy='9'%3E📚%3C/text%3E%3C/svg%3E">
 <title>Bibliothèque d'outils Claude</title>
 <script>
+// Service Worker : network-first pour garantir que tout le monde reçoit la dernière version
+// (le cache navigateur natif est trop tenace, surtout sur mobile)
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js").then((reg) => {
+    // Check les updates du SW lui-même toutes les 5 minutes
+    setInterval(() => { try { reg.update(); } catch(e){} }, 5 * 60 * 1000);
+  }).catch((e) => console.warn("[SW] register failed", e));
+}
 window.tailwind = { config: { darkMode: "class" } };
 // Cycle de thèmes : light → dark → cyberpunk → light
 window.THEMES = ["light", "dark", "cyberpunk"];
@@ -808,8 +816,21 @@ function updateSyncStatus() {
   }
 }
 
-// Force le rechargement en contournant le cache via query string + reload(true)
-function forceReloadApp() {
+// Force le rechargement en vidant TOUS les caches (Service Worker compris) et en contournant le cache navigateur
+async function forceReloadApp() {
+  try {
+    // 1) Vide tous les caches gérés par le Service Worker
+    if ("caches" in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map((n) => caches.delete(n)));
+    }
+    // 2) Désinscrit les Service Workers pour repartir propre (ils se réinstalleront au prochain load)
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+  } catch (e) { console.warn("[force reload] cache clear failed", e); }
+  // 3) Reload avec cache-buster
   const url = new URL(location.href);
   url.searchParams.set("_t", String(Date.now()));
   location.replace(url.toString());
