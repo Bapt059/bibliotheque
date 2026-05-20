@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#0a0a14">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -23,34 +23,12 @@ if ("serviceWorker" in navigator) {
   }).catch((e) => console.warn("[SW] register failed", e));
 }
 window.tailwind = { config: { darkMode: "class" } };
-// Cycle de thèmes : light → dark → cyberpunk → light
-window.THEMES = ["light", "dark", "cyberpunk"];
-window.THEME_ICONS = { light: "🌙", dark: "☀️", cyberpunk: "⚡" };
-window.applyThemeName = function(name) {
-  if (!window.THEMES.includes(name)) name = "light";
-  var html = document.documentElement;
-  html.classList.toggle("dark", name === "dark" || name === "cyberpunk");
-  html.classList.toggle("cyberpunk", name === "cyberpunk");
-  try { localStorage.setItem("theme", name); } catch(e) {}
-  var btn = document.getElementById("theme-btn");
-  if (btn) btn.textContent = window.THEME_ICONS[name];
-  console.log("[theme]", name);
-};
-window.toggleTheme = function() {
-  var current = document.documentElement.classList.contains("cyberpunk") ? "cyberpunk"
-              : document.documentElement.classList.contains("dark") ? "dark" : "light";
-  var next = window.THEMES[(window.THEMES.indexOf(current) + 1) % window.THEMES.length];
-  window.applyThemeName(next);
-};
-// Applique le thème stocké au plus tôt (évite le flash)
-(function() {
-  try {
-    var stored = localStorage.getItem("theme") || "light";
-    var html = document.documentElement;
-    if (stored === "dark") html.classList.add("dark");
-    else if (stored === "cyberpunk") { html.classList.add("dark"); html.classList.add("cyberpunk"); }
-  } catch(e) {}
-})();
+// Thème unique : cyberpunk (les classes dark + cyberpunk sont posées dès le tout début pour éviter tout flash)
+document.documentElement.classList.add("dark");
+document.documentElement.classList.add("cyberpunk");
+// Stubs no-op pour ne rien casser dans le reste du code qui pourrait encore les appeler
+window.applyThemeName = function() {};
+window.toggleTheme = function() {};
 </script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -434,7 +412,6 @@ window.toggleTheme = function() {
     </select>
     <button id="add-btn" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700" title="Ajouter un fichier"><span>+</span><span class="hidden sm:inline ml-1">Fichier</span></button>
     <button id="paste-btn" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Coller un outil"><span>📋</span><span class="hidden sm:inline ml-1">Coller</span></button>
-    <button id="theme-btn" onclick="window.toggleTheme && window.toggleTheme()" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Thème">🌙</button>
     <button id="sync-btn" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Synchronisation cloud">🔄</button>
     <button id="export-btn" class="hidden sm:inline-block px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Exporter la bibliothèque">↓</button>
     <button id="import-btn" class="hidden sm:inline-block px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Importer">↑</button>
@@ -647,9 +624,7 @@ function toast(msg, kind) {
 //============================================================
 // Theme
 //============================================================
-// Theme logic vit dans le <script> inline du <head> : window.applyThemeName / window.toggleTheme
-// On ne redéfinit pas ici pour éviter d'écraser et créer des conflits.
-function applyTheme(t) { window.applyThemeName(t); }
+// Thème unique cyberpunk : appliqué dès le <script> du <head>, plus rien à faire ici.
 
 //============================================================
 // Sync (GitHub Gist)
@@ -2039,7 +2014,6 @@ document.addEventListener("keydown", (e) => {
 // Init
 //============================================================
 function init() {
-  applyTheme(localStorage.getItem("theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
   refresh().then(handleShareHash).then(() => {
     // Si sync auto activée et configurée : pull silencieux au chargement
     const cfg = syncCfg();
