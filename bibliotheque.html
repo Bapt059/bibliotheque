@@ -1,0 +1,2051 @@
+<!DOCTYPE html>
+<html lang="fr" class="">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bibliothèque">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='32' fill='%230f172a'/%3E%3Ctext x='50%25' y='50%25' font-size='110' text-anchor='middle' dy='38'%3E📚%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='50%25' y='50%25' font-size='26' text-anchor='middle' dy='9'%3E📚%3C/text%3E%3C/svg%3E">
+<title>Bibliothèque d'outils Claude</title>
+<script>
+window.tailwind = { config: { darkMode: "class" } };
+// Cycle de thèmes : light → dark → cyberpunk → light
+window.THEMES = ["light", "dark", "cyberpunk"];
+window.THEME_ICONS = { light: "🌙", dark: "☀️", cyberpunk: "⚡" };
+window.applyThemeName = function(name) {
+  if (!window.THEMES.includes(name)) name = "light";
+  var html = document.documentElement;
+  html.classList.toggle("dark", name === "dark" || name === "cyberpunk");
+  html.classList.toggle("cyberpunk", name === "cyberpunk");
+  try { localStorage.setItem("theme", name); } catch(e) {}
+  var btn = document.getElementById("theme-btn");
+  if (btn) btn.textContent = window.THEME_ICONS[name];
+  console.log("[theme]", name);
+};
+window.toggleTheme = function() {
+  var current = document.documentElement.classList.contains("cyberpunk") ? "cyberpunk"
+              : document.documentElement.classList.contains("dark") ? "dark" : "light";
+  var next = window.THEMES[(window.THEMES.indexOf(current) + 1) % window.THEMES.length];
+  window.applyThemeName(next);
+};
+// Applique le thème stocké au plus tôt (évite le flash)
+(function() {
+  try {
+    var stored = localStorage.getItem("theme") || "light";
+    var html = document.documentElement;
+    if (stored === "dark") html.classList.add("dark");
+    else if (stored === "cyberpunk") { html.classList.add("dark"); html.classList.add("cyberpunk"); }
+  } catch(e) {}
+})();
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  [contenteditable]:focus { outline: 2px solid #60a5fa; outline-offset: 2px; border-radius: 4px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  .thumb-placeholder {
+    background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #f472b6 100%);
+  }
+  .CodeMirror { height: 100% !important; font-size: 13px !important; font-family: ui-monospace, Menlo, Consolas, monospace !important; }
+  .card.dragging { opacity: 0.4; }
+  .card.drag-over { box-shadow: 0 0 0 3px #3b82f6; }
+  .tag-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+  textarea.code-area {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    tab-size: 2;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+  }
+
+  /* Light mode forcé — empêche Tailwind dark: (media) de prendre le dessus quand OS est en sombre */
+  html:not(.dark) { color-scheme: light; }
+  html:not(.dark) body { background-color: #f8fafc !important; color: #0f172a !important; }
+  html:not(.dark) header { background-color: #ffffff !important; border-color: #e2e8f0 !important; }
+  html:not(.dark) .card { background-color: #ffffff !important; border-color: #e2e8f0 !important; color: #0f172a !important; }
+  html:not(.dark) #card-menu { background-color: #ffffff !important; border-color: #e2e8f0 !important; color: #0f172a !important; }
+  html:not(.dark) #viewer-modal > div, html:not(.dark) #editor-modal > div, html:not(.dark) #paste-modal > div, html:not(.dark) #details-modal > div { background-color: #ffffff !important; color: #0f172a !important; }
+  html:not(.dark) #viewer-modal header, html:not(.dark) #editor-modal header { background-color: #f8fafc !important; border-color: #e2e8f0 !important; }
+  html:not(.dark) input, html:not(.dark) select, html:not(.dark) #paste-textarea, html:not(.dark) #details-description { background-color: #ffffff !important; color: #0f172a !important; border-color: #e2e8f0 !important; }
+  html:not(.dark) input::placeholder, html:not(.dark) textarea::placeholder { color: #94a3b8 !important; }
+  html:not(.dark) h1, html:not(.dark) h2, html:not(.dark) h3 { color: #0f172a !important; }
+  html:not(.dark) code { background-color: #f1f5f9 !important; color: #0f172a !important; }
+
+  /* Dark mode — règles explicites avec !important (priorité sur Tailwind) */
+  html.dark { color-scheme: dark; }
+  html.dark body { background-color: #0f172a !important; color: #f1f5f9 !important; }
+  html.dark .bg-white { background-color: #1e293b !important; }
+  html.dark .bg-slate-50 { background-color: #0f172a !important; }
+  html.dark .bg-slate-100 { background-color: #334155 !important; }
+  html.dark .bg-slate-800 { background-color: #1e293b !important; }
+  html.dark .bg-slate-900 { background-color: #0f172a !important; }
+  html.dark .border-slate-200 { border-color: #334155 !important; }
+  html.dark .border-slate-300 { border-color: #475569 !important; }
+  html.dark .border-slate-700 { border-color: #334155 !important; }
+  html.dark .text-slate-900 { color: #f1f5f9 !important; }
+  html.dark .text-slate-700 { color: #cbd5e1 !important; }
+  html.dark .text-slate-500 { color: #94a3b8 !important; }
+  html.dark .text-slate-400 { color: #94a3b8 !important; }
+  html.dark input, html.dark select { background-color: #334155 !important; color: #f1f5f9 !important; border-color: #475569 !important; }
+  html.dark #paste-textarea, html.dark #details-description { background-color: #334155 !important; color: #f1f5f9 !important; border-color: #475569 !important; }
+  html.dark input::placeholder, html.dark textarea::placeholder { color: #94a3b8 !important; }
+  html.dark code { background-color: #334155 !important; color: #f1f5f9 !important; }
+  html.dark .hover\:bg-slate-100:hover { background-color: #334155 !important; }
+  html.dark .hover\:bg-slate-200:hover { background-color: #475569 !important; }
+  html.dark .hover\:bg-slate-700:hover { background-color: #334155 !important; }
+  html.dark .hover\:bg-red-50:hover { background-color: rgba(127, 29, 29, 0.3) !important; }
+  html.dark .bg-orange-100 { background-color: rgba(154, 52, 18, 0.4) !important; }
+  html.dark .bg-blue-100 { background-color: rgba(30, 58, 138, 0.4) !important; }
+  html.dark .text-orange-700 { color: #fed7aa !important; }
+  html.dark .text-blue-700 { color: #bfdbfe !important; }
+  html.dark .text-red-600 { color: #fca5a5 !important; }
+  html.dark header, html.dark #card-menu, html.dark .card { background-color: #1e293b !important; border-color: #334155 !important; }
+  html.dark .card:hover { border-color: #475569 !important; }
+  html.dark #viewer-modal > div, html.dark #editor-modal > div, html.dark #paste-modal > div, html.dark #details-modal > div { background-color: #1e293b !important; }
+  html.dark #viewer-modal header, html.dark #editor-modal header { background-color: #0f172a !important; border-color: #334155 !important; }
+
+  /* ===================== CYBERPUNK THEME ===================== */
+  html.cyberpunk {
+    color-scheme: dark;
+    --neon-yellow: #fcee0a;
+    --neon-cyan: #00f0ff;
+    --neon-magenta: #ff2a6d;
+    --neon-purple: #b026ff;
+    --cyber-bg: #0a0a14;
+    --cyber-card: #12122a;
+    --cyber-elevated: #1a1a3a;
+    --cyber-border: #2a2a4e;
+    --cyber-text: #d1f7ff;
+    --cyber-muted: #6c7293;
+  }
+  html.cyberpunk body {
+    background-color: #0a0a14 !important;
+    color: #d1f7ff !important;
+    background-image:
+      linear-gradient(rgba(255, 42, 109, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px),
+      radial-gradient(ellipse at top, rgba(176, 38, 255, 0.08), transparent 60%);
+    background-size: 40px 40px, 40px 40px, 100% 100%;
+    background-attachment: fixed;
+    position: relative;
+  }
+  /* Grille néon qui s'illumine autour du curseur */
+  html.cyberpunk body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(rgba(0, 240, 255, 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 42, 109, 0.35) 1px, transparent 1px);
+    background-size: 40px 40px, 40px 40px;
+    background-position: 0 0, 0 0;
+    -webkit-mask-image: radial-gradient(circle 260px at var(--mx, -200px) var(--my, -200px), black 0%, rgba(0,0,0,0.4) 40%, transparent 75%);
+    mask-image: radial-gradient(circle 260px at var(--mx, -200px) var(--my, -200px), black 0%, rgba(0,0,0,0.4) 40%, transparent 75%);
+    transition: opacity 0.2s;
+  }
+  /* Petite lueur ponctuelle juste sous le curseur */
+  html.cyberpunk body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(circle 180px at var(--mx, -200px) var(--my, -200px),
+      rgba(252, 238, 10, 0.08) 0%,
+      rgba(0, 240, 255, 0.05) 30%,
+      transparent 70%);
+    transition: opacity 0.2s;
+  }
+  /* Assure que le contenu reste au-dessus de la grille */
+  html.cyberpunk main, html.cyberpunk header { position: relative; z-index: 1; }
+  html.cyberpunk header {
+    background-color: rgba(10, 10, 20, 0.9) !important;
+    border-bottom: 2px solid #ff2a6d !important;
+    box-shadow: 0 0 24px rgba(255, 42, 109, 0.25);
+    backdrop-filter: blur(8px);
+  }
+  html.cyberpunk h1 {
+    color: #fcee0a !important;
+    text-shadow: 0 0 8px rgba(252, 238, 10, 0.8), 0 0 16px rgba(252, 238, 10, 0.4);
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+  html.cyberpunk h2, html.cyberpunk h3 {
+    color: #d1f7ff !important;
+    text-shadow: 0 0 4px rgba(0, 240, 255, 0.5);
+    letter-spacing: 0.03em;
+  }
+  html.cyberpunk .card {
+    background-color: #12122a !important;
+    border: 1px solid #2a2a4e !important;
+    border-radius: 4px !important;
+    color: #d1f7ff !important;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+  html.cyberpunk .card::before {
+    content: "";
+    position: absolute;
+    top: -1px; left: -1px; right: -1px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #ff2a6d, transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  html.cyberpunk .card:hover {
+    border-color: #00f0ff !important;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.35), inset 0 0 24px rgba(0, 240, 255, 0.04) !important;
+    transform: translateY(-1px);
+  }
+  html.cyberpunk .card:hover::before { opacity: 1; }
+
+  html.cyberpunk #card-menu,
+  html.cyberpunk #viewer-modal > div,
+  html.cyberpunk #editor-modal > div,
+  html.cyberpunk #paste-modal > div,
+  html.cyberpunk #details-modal > div {
+    background-color: #12122a !important;
+    border: 1px solid #ff2a6d !important;
+    border-radius: 4px !important;
+    box-shadow: 0 0 32px rgba(255, 42, 109, 0.3), inset 0 0 32px rgba(176, 38, 255, 0.05) !important;
+    color: #d1f7ff !important;
+  }
+  html.cyberpunk #viewer-modal header,
+  html.cyberpunk #editor-modal header,
+  html.cyberpunk #paste-modal header,
+  html.cyberpunk #details-modal header {
+    background-color: rgba(10, 10, 20, 0.85) !important;
+    border-bottom: 1px solid #ff2a6d !important;
+  }
+
+  html.cyberpunk input,
+  html.cyberpunk select,
+  html.cyberpunk #paste-textarea,
+  html.cyberpunk #details-description,
+  html.cyberpunk #editor-name {
+    background-color: #0a0a14 !important;
+    color: #d1f7ff !important;
+    border: 1px solid #2a2a4e !important;
+    border-radius: 2px !important;
+    font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace !important;
+  }
+  html.cyberpunk input:focus,
+  html.cyberpunk select:focus,
+  html.cyberpunk textarea:focus,
+  html.cyberpunk [contenteditable]:focus {
+    outline: none !important;
+    border-color: #00f0ff !important;
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.5) !important;
+  }
+  html.cyberpunk input::placeholder,
+  html.cyberpunk textarea::placeholder { color: #6c7293 !important; font-style: italic; }
+
+  /* Boutons primaires : jaune néon, texte noir, glow */
+  html.cyberpunk .bg-blue-600 {
+    background-color: #fcee0a !important;
+    color: #0a0a14 !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-radius: 2px !important;
+    box-shadow: 0 0 12px rgba(252, 238, 10, 0.4);
+    transition: all 0.15s;
+  }
+  html.cyberpunk .bg-blue-600:hover,
+  html.cyberpunk .hover\:bg-blue-700:hover {
+    background-color: #00f0ff !important;
+    color: #0a0a14 !important;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.7) !important;
+  }
+
+  /* Boutons secondaires : bordure cyan */
+  html.cyberpunk button { border-radius: 2px !important; }
+  html.cyberpunk .border-slate-200, html.cyberpunk .border-slate-300, html.cyberpunk .border-slate-600, html.cyberpunk .border-slate-700 {
+    border-color: #2a2a4e !important;
+  }
+  html.cyberpunk .hover\:bg-slate-100:hover,
+  html.cyberpunk .hover\:bg-slate-700:hover,
+  html.cyberpunk .hover\:bg-slate-200:hover {
+    background-color: rgba(0, 240, 255, 0.1) !important;
+    border-color: #00f0ff !important;
+    color: #00f0ff !important;
+  }
+  html.cyberpunk .hover\:bg-red-50:hover { background-color: rgba(255, 42, 109, 0.15) !important; border-color: #ff2a6d !important; color: #ff2a6d !important; }
+  html.cyberpunk .text-red-600 { color: #ff2a6d !important; }
+
+  /* Tags & badges */
+  html.cyberpunk .tag-chip {
+    background-color: rgba(255, 42, 109, 0.12) !important;
+    color: #ff2a6d !important;
+    border: 1px solid #ff2a6d !important;
+    border-radius: 2px !important;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  html.cyberpunk .bg-blue-100 { background-color: rgba(0, 240, 255, 0.12) !important; color: #00f0ff !important; border: 1px solid #00f0ff !important; }
+  html.cyberpunk .text-blue-700 { color: #00f0ff !important; }
+  html.cyberpunk .bg-orange-100 { background-color: rgba(252, 238, 10, 0.12) !important; color: #fcee0a !important; border: 1px solid #fcee0a !important; }
+  html.cyberpunk .text-orange-700 { color: #fcee0a !important; }
+
+  html.cyberpunk .text-slate-400, html.cyberpunk .text-slate-500 { color: #6c7293 !important; }
+  html.cyberpunk .text-slate-700, html.cyberpunk .text-slate-900 { color: #d1f7ff !important; }
+  html.cyberpunk code { background-color: #0a0a14 !important; color: #00f0ff !important; border: 1px solid #2a2a4e !important; padding: 1px 6px !important; border-radius: 2px !important; }
+
+  /* Favori : jaune néon */
+  html.cyberpunk button[data-fav-id].text-yellow-400 { color: #fcee0a !important; text-shadow: 0 0 8px rgba(252, 238, 10, 0.8); }
+  html.cyberpunk button[data-fav-id] { background-color: rgba(10, 10, 20, 0.7) !important; backdrop-filter: blur(4px); }
+
+  /* Thumbnail placeholder : dégradé néon */
+  html.cyberpunk .thumb-placeholder {
+    background: linear-gradient(135deg, #ff2a6d 0%, #b026ff 50%, #00f0ff 100%) !important;
+    box-shadow: inset 0 0 32px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Drop overlay */
+  html.cyberpunk #drop-overlay { background-color: rgba(176, 38, 255, 0.2) !important; backdrop-filter: blur(8px); }
+  html.cyberpunk #drop-overlay > div { background-color: #12122a !important; border-color: #fcee0a !important; box-shadow: 0 0 48px rgba(252, 238, 10, 0.5) !important; }
+  html.cyberpunk #drop-overlay p { color: #fcee0a !important; text-shadow: 0 0 16px rgba(252, 238, 10, 0.8); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* Toasts */
+  html.cyberpunk #toast-container > div { border: 1px solid #00f0ff !important; border-radius: 2px !important; box-shadow: 0 0 20px rgba(0, 240, 255, 0.5) !important; background-color: #12122a !important; color: #d1f7ff !important; }
+
+  /* Sélection */
+  html.cyberpunk ::selection { background-color: #fcee0a; color: #0a0a14; }
+  html.cyberpunk ::-moz-selection { background-color: #fcee0a; color: #0a0a14; }
+
+  /* Scrollbars */
+  html.cyberpunk * { scrollbar-color: #ff2a6d #0a0a14; scrollbar-width: thin; }
+  html.cyberpunk *::-webkit-scrollbar { width: 10px; height: 10px; }
+  html.cyberpunk *::-webkit-scrollbar-track { background: #0a0a14; }
+  html.cyberpunk *::-webkit-scrollbar-thumb { background: #ff2a6d; border: 2px solid #0a0a14; border-radius: 0; }
+  html.cyberpunk *::-webkit-scrollbar-thumb:hover { background: #00f0ff; }
+
+  /* Glitch sur hover du titre principal */
+  html.cyberpunk h1:hover { animation: cyber-glitch 0.4s ease-in-out; }
+  @keyframes cyber-glitch {
+    0%, 100% { transform: translate(0); }
+    20% { transform: translate(-2px, 1px); text-shadow: 2px 0 #ff2a6d, -2px 0 #00f0ff; }
+    40% { transform: translate(2px, -1px); text-shadow: -2px 0 #ff2a6d, 2px 0 #00f0ff; }
+    60% { transform: translate(-1px, 0); }
+    80% { transform: translate(1px, 0); }
+  }
+
+  /* CodeMirror dans l'éditeur — thème cyberpunk */
+  html.cyberpunk .CodeMirror { background: #0a0a14 !important; color: #d1f7ff !important; }
+  html.cyberpunk .CodeMirror-gutters { background: #0a0a14 !important; border-right: 1px solid #2a2a4e !important; }
+  html.cyberpunk .CodeMirror-linenumber { color: #6c7293 !important; }
+  html.cyberpunk .CodeMirror-cursor { border-left: 2px solid #fcee0a !important; }
+  html.cyberpunk .cm-keyword { color: #ff2a6d !important; }
+  html.cyberpunk .cm-string { color: #fcee0a !important; }
+  html.cyberpunk .cm-number { color: #00f0ff !important; }
+  html.cyberpunk .cm-comment { color: #6c7293 !important; font-style: italic; }
+  html.cyberpunk .cm-tag, html.cyberpunk .cm-bracket { color: #00f0ff !important; }
+  html.cyberpunk .cm-attribute { color: #b026ff !important; }
+
+  /* ===================== RESPONSIVE / MOBILE ===================== */
+
+  /* iOS : empêche le zoom automatique au focus d'un input dont font-size < 16px */
+  @media (max-width: 640px) {
+    input, textarea, select, [contenteditable=""], [contenteditable="true"] {
+      font-size: 16px !important;
+    }
+  }
+
+  /* Sur les écrans tactiles : pas de hover sticky, pas de mesh cyberpunk (perf + non pertinent) */
+  @media (hover: none) {
+    .card:hover { box-shadow: none !important; transform: none !important; }
+    .card:hover::before { opacity: 0 !important; }
+    html.cyberpunk body::before, html.cyberpunk body::after { display: none !important; }
+  }
+
+  /* Mobile : modales en plein écran (pas de padding extérieur, pas de border-radius) */
+  @media (max-width: 640px) {
+    #viewer-modal, #editor-modal, #paste-modal, #details-modal, #sync-modal {
+      padding: 0 !important;
+    }
+    #viewer-modal > div,
+    #editor-modal > div,
+    #paste-modal > div,
+    #details-modal > div,
+    #sync-modal > div {
+      border-radius: 0 !important;
+      max-width: 100% !important;
+      max-height: 100% !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    /* Respect des safe areas iOS */
+    #viewer-modal > div, #editor-modal > div, #paste-modal > div, #details-modal > div, #sync-modal > div {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    /* Header collant : compact */
+    header h1 { font-size: 1rem; }
+    /* Cartes : zone tap minimum confortable */
+    .card button { min-height: 38px; }
+    /* Empêche débordement horizontal */
+    body { overflow-x: hidden; }
+    /* Grille en colonne pleine largeur, marges plus serrées */
+    main { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+    header > div { padding-left: 0.75rem !important; padding-right: 0.75rem !important; gap: 0.5rem !important; }
+  }
+
+  /* Tablette portrait : 2 colonnes confortables, header avec gap réduit */
+  @media (min-width: 641px) and (max-width: 1023px) {
+    header > div { gap: 0.5rem; }
+  }
+
+  /* CodeMirror lisible sur mobile (font un peu plus petite) */
+  @media (max-width: 640px) {
+    .CodeMirror { font-size: 14px !important; }
+    #editor-name { font-size: 16px !important; }
+  }
+
+  /* Cache la barre header au scroll vers le bas sur mobile pour gagner de la place (optionnel, basique) */
+  @media (max-width: 640px) {
+    header { backdrop-filter: blur(8px); }
+  }
+</style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 min-h-screen">
+
+<header class="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 sticky top-0 z-20">
+  <div class="max-w-7xl mx-auto px-6 py-3 flex items-center gap-3 flex-wrap">
+    <h1 class="text-xl font-semibold mr-1 sm:mr-2 select-none"><span>📚</span><span class="hidden sm:inline ml-1">Bibliothèque</span></h1>
+    <input id="search" type="search" placeholder="Rechercher..." class="flex-1 min-w-[140px] max-w-sm px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+    <select id="tag-filter" class="hidden sm:block px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm">
+      <option value="">Tous les tags</option>
+    </select>
+    <button id="add-btn" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700" title="Ajouter un fichier"><span>+</span><span class="hidden sm:inline ml-1">Fichier</span></button>
+    <button id="paste-btn" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Coller un outil"><span>📋</span><span class="hidden sm:inline ml-1">Coller</span></button>
+    <button id="theme-btn" onclick="window.toggleTheme && window.toggleTheme()" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Thème">🌙</button>
+    <button id="sync-btn" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Synchronisation cloud">🔄</button>
+    <button id="export-btn" class="hidden sm:inline-block px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Exporter la bibliothèque">↓</button>
+    <button id="import-btn" class="hidden sm:inline-block px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700" title="Importer">↑</button>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-8">
+  <div id="empty" class="hidden text-center py-24 text-slate-400 dark:text-slate-500">
+    <p class="text-5xl mb-4">📂</p>
+    <p class="text-lg">Aucun outil pour le moment</p>
+    <p class="mt-2 text-sm">Glisse des fichiers <code class="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">.jsx</code> / <code class="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">.html</code>, ou utilise <strong>Coller</strong> / <strong>Ajouter</strong></p>
+  </div>
+  <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+</main>
+
+<div id="drop-overlay" class="fixed inset-0 bg-blue-600/30 backdrop-blur-sm hidden items-center justify-center z-50 pointer-events-none">
+  <div class="bg-white dark:bg-slate-800 px-10 py-8 rounded-2xl shadow-2xl border-4 border-dashed border-blue-500">
+    <p class="text-3xl font-semibold text-blue-600 dark:text-blue-400">Dépose tes fichiers ici</p>
+  </div>
+</div>
+
+<!-- Viewer modal -->
+<div id="viewer-modal" class="hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm p-4">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full h-full flex flex-col overflow-hidden">
+    <header class="flex items-center gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+      <span id="viewer-title" class="font-medium flex-1 truncate"></span>
+      <button id="viewer-thumb" class="px-2 py-1 rounded text-sm hover:bg-slate-200 dark:hover:bg-slate-700" title="Capturer la miniature">📷</button>
+      <button id="viewer-edit" class="px-2 py-1 rounded text-sm hover:bg-slate-200 dark:hover:bg-slate-700" title="Éditer le code">✏️</button>
+      <button id="viewer-newtab" class="px-2 py-1 rounded text-sm hover:bg-slate-200 dark:hover:bg-slate-700" title="Ouvrir dans un nouvel onglet">↗</button>
+      <button id="viewer-reload" class="px-2 py-1 rounded text-sm hover:bg-slate-200 dark:hover:bg-slate-700" title="Recharger">↻</button>
+      <button id="viewer-close" class="px-2 py-1 rounded text-sm hover:bg-slate-200 dark:hover:bg-slate-700" title="Fermer (Esc)">×</button>
+    </header>
+    <iframe id="viewer-iframe" class="flex-1 w-full border-0 bg-white"></iframe>
+  </div>
+</div>
+
+<!-- Editor modal -->
+<div id="editor-modal" class="hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm p-4">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full h-full flex flex-col overflow-hidden">
+    <header class="flex items-center gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+      <input id="editor-name" class="font-medium flex-1 bg-transparent border-0 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400 rounded" placeholder="Nom">
+      <span id="editor-status" class="text-xs text-slate-400 mr-2"></span>
+      <button id="editor-save" class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700">💾 Sauver & lancer</button>
+      <button id="editor-save-only" class="px-3 py-1.5 rounded border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Sauver</button>
+      <button id="editor-cancel" class="px-2 py-1 rounded text-sm hover:bg-slate-200 dark:hover:bg-slate-700">×</button>
+    </header>
+    <div id="editor-mount" class="flex-1 overflow-hidden"></div>
+  </div>
+</div>
+
+<!-- Paste modal -->
+<div id="paste-modal" class="hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+    <header class="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+      <h2 class="font-semibold flex-1">Coller un outil</h2>
+      <button id="paste-close" class="px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700">×</button>
+    </header>
+    <div class="p-4 flex flex-col gap-3 overflow-auto">
+      <div class="flex gap-3 items-end">
+        <label class="flex-1">
+          <span class="text-xs text-slate-500 dark:text-slate-400">Nom (auto-détecté si vide)</span>
+          <input id="paste-name" class="w-full mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm">
+        </label>
+        <label>
+          <span class="text-xs text-slate-500 dark:text-slate-400">Type</span>
+          <select id="paste-kind" class="block mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm">
+            <option value="auto">Auto</option>
+            <option value="jsx">JSX (React)</option>
+            <option value="html">HTML</option>
+          </select>
+        </label>
+      </div>
+      <label class="flex-1 flex flex-col">
+        <span class="text-xs text-slate-500 dark:text-slate-400">Code</span>
+        <textarea id="paste-textarea" rows="16" class="code-area mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 resize-y" placeholder="Colle ton code .jsx ou .html ici..."></textarea>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button id="paste-clipboard" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">📋 Depuis le presse-papier</button>
+        <button id="paste-save" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">Ajouter</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Details modal -->
+<div id="details-modal" class="hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden">
+    <header class="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+      <h2 class="font-semibold flex-1">Détails de l'outil</h2>
+      <button id="details-close" class="px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700">×</button>
+    </header>
+    <div class="p-4 flex flex-col gap-3">
+      <label>
+        <span class="text-xs text-slate-500 dark:text-slate-400">Nom</span>
+        <input id="details-name" class="w-full mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm">
+      </label>
+      <label>
+        <span class="text-xs text-slate-500 dark:text-slate-400">Description</span>
+        <textarea id="details-description" rows="3" class="w-full mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm resize-y"></textarea>
+      </label>
+      <label>
+        <span class="text-xs text-slate-500 dark:text-slate-400">Tags (séparés par virgule)</span>
+        <input id="details-tags" class="w-full mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm" placeholder="ex: math, productivité, jeu">
+      </label>
+      <div class="flex justify-end gap-2 pt-2">
+        <button id="details-cancel" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Annuler</button>
+        <button id="details-save" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sync modal -->
+<div id="sync-modal" class="hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden">
+    <header class="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+      <h2 class="font-semibold flex-1">🔄 Synchronisation GitHub Gist</h2>
+      <button id="sync-close" class="px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700">×</button>
+    </header>
+    <div class="p-4 flex flex-col gap-3 text-sm">
+      <details class="bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
+        <summary class="cursor-pointer font-medium">Comment obtenir un token GitHub ?</summary>
+        <ol class="mt-3 pl-5 list-decimal space-y-1 text-slate-600 dark:text-slate-400">
+          <li>Va sur <a href="https://github.com/settings/tokens" target="_blank" class="text-blue-600 dark:text-blue-400 underline">github.com/settings/tokens</a></li>
+          <li>"Generate new token (classic)"</li>
+          <li>Coche uniquement le scope <code class="bg-slate-200 dark:bg-slate-700 px-1 rounded">gist</code></li>
+          <li>Choisis une expiration longue (1 an ou "No expiration")</li>
+          <li>Copie le token (<code class="bg-slate-200 dark:bg-slate-700 px-1 rounded">ghp_...</code>) et colle-le ci-dessous</li>
+        </ol>
+      </details>
+      <label>
+        <span class="text-xs text-slate-500 dark:text-slate-400">Personal Access Token (scope <code>gist</code>)</span>
+        <input id="sync-token" type="password" class="w-full mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm font-mono" placeholder="ghp_...">
+      </label>
+      <label>
+        <span class="text-xs text-slate-500 dark:text-slate-400">Gist ID (vide = un nouveau Gist privé sera créé automatiquement)</span>
+        <input id="sync-gist-id" class="w-full mt-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm font-mono">
+      </label>
+      <label class="flex items-center gap-2">
+        <input id="sync-auto" type="checkbox" class="rounded">
+        <span>Sync automatique après chaque modification</span>
+      </label>
+      <div id="sync-status" class="text-xs text-slate-500 dark:text-slate-400 min-h-[1em]"></div>
+      <div id="sync-version" class="text-xs text-slate-400 dark:text-slate-500"></div>
+      <div class="flex flex-wrap justify-end gap-2 pt-2">
+        <button id="sync-force-reload" class="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/30" title="Vide le cache navigateur et recharge la dernière version depuis GitHub">🔁 Forcer mise à jour</button>
+        <button id="sync-disconnect" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-red-50 hover:border-red-200 hover:text-red-600">Déconnecter</button>
+        <button id="sync-save" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Enregistrer</button>
+        <button id="sync-now" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">Sync maintenant</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Card menu (context) -->
+<div id="card-menu" class="hidden fixed z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 text-sm min-w-[180px]">
+  <button data-action="open" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Ouvrir</button>
+  <button data-action="open-tab" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Ouvrir dans un onglet</button>
+  <button data-action="edit" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Éditer le code</button>
+  <button data-action="details" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Détails / Tags</button>
+  <div class="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+  <button data-action="duplicate" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Dupliquer</button>
+  <button data-action="download" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Télécharger source</button>
+  <button data-action="standalone" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Exporter HTML autonome</button>
+  <button data-action="share" class="block w-full text-left px-4 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700">Copier lien partageable</button>
+  <div class="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+  <button data-action="delete" class="block w-full text-left px-4 py-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400">Supprimer</button>
+</div>
+
+<input type="file" id="file-input" multiple accept=".jsx,.tsx,.js,.ts,.html,.htm" class="hidden">
+<input type="file" id="import-input" accept=".json" class="hidden">
+
+<!-- Toast container -->
+<div id="toast-container" class="fixed bottom-4 right-4 z-[60] flex flex-col gap-2"></div>
+
+<script>
+//============================================================
+// Utils
+//============================================================
+function uuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;","\"":"&quot;"}[c]));
+}
+
+function safeJSON(s) {
+  return JSON.stringify(s).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028").replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
+}
+
+function toast(msg, kind) {
+  const el = document.createElement("div");
+  const colors = {
+    error: "bg-red-600",
+    info: "bg-slate-800 dark:bg-slate-700",
+    success: "bg-emerald-600"
+  };
+  el.className = `${colors[kind] || colors.info} text-white px-4 py-2 rounded-lg shadow-lg text-sm animate-[slideIn_0.2s_ease-out]`;
+  el.textContent = msg;
+  document.getElementById("toast-container").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity 0.3s"; }, 2500);
+  setTimeout(() => el.remove(), 3000);
+}
+
+//============================================================
+// Theme
+//============================================================
+// Theme logic vit dans le <script> inline du <head> : window.applyThemeName / window.toggleTheme
+// On ne redéfinit pas ici pour éviter d'écraser et créer des conflits.
+function applyTheme(t) { window.applyThemeName(t); }
+
+//============================================================
+// Sync (GitHub Gist)
+//============================================================
+const SYNC_KEYS = { token: "sync.token", gist: "sync.gist", auto: "sync.auto", last: "sync.last" };
+const SYNC_FILE_NAME = "bibliotheque-claude.json";
+
+function syncCfg() {
+  let token = "", gistId = "", auto = false, last = 0;
+  try {
+    token = localStorage.getItem(SYNC_KEYS.token) || "";
+    gistId = localStorage.getItem(SYNC_KEYS.gist) || "";
+    auto = localStorage.getItem(SYNC_KEYS.auto) === "1";
+    last = parseInt(localStorage.getItem(SYNC_KEYS.last) || "0", 10);
+  } catch (e) {}
+  return { token, gistId, auto, last };
+}
+function syncCfgSet(patch) {
+  try {
+    if ("token" in patch) localStorage.setItem(SYNC_KEYS.token, patch.token);
+    if ("gistId" in patch) localStorage.setItem(SYNC_KEYS.gist, patch.gistId);
+    if ("auto" in patch) localStorage.setItem(SYNC_KEYS.auto, patch.auto ? "1" : "0");
+    if ("last" in patch) localStorage.setItem(SYNC_KEYS.last, String(patch.last));
+  } catch (e) {}
+}
+
+async function gistGet(gistId, token) {
+  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
+  });
+  if (!res.ok) throw new Error(`Gist GET ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+async function gistPatch(gistId, token, files) {
+  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+    body: JSON.stringify({ files })
+  });
+  if (!res.ok) throw new Error(`Gist PATCH ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+async function gistCreate(token, files) {
+  const res = await fetch("https://api.github.com/gists", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+    body: JSON.stringify({ files, description: "Bibliothèque d'outils Claude", public: false })
+  });
+  if (!res.ok) throw new Error(`Gist POST ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+function stripForSync(tool) {
+  const { thumbnail, ...rest } = tool;
+  return rest; // thumbnails restent locaux (trop volumineux pour un Gist)
+}
+function mergeToolsForSync(local, remote) {
+  const localById = new Map(local.map(t => [t.id, t]));
+  const byId = new Map(localById);
+  for (const r of remote) {
+    const l = localById.get(r.id);
+    const rT = r.updatedAt || r.addedAt || 0;
+    const lT = l ? (l.updatedAt || l.addedAt || 0) : 0;
+    if (!l || rT > lT) {
+      const merged = { ...r };
+      if (!merged.thumbnail && l && l.thumbnail) merged.thumbnail = l.thumbnail;
+      byId.set(r.id, merged);
+    } else if (l && !l.thumbnail && r.thumbnail) {
+      byId.set(l.id, { ...l, thumbnail: r.thumbnail });
+    }
+  }
+  return [...byId.values()];
+}
+
+let syncing = false;
+async function performSync(opts) {
+  opts = opts || {};
+  if (syncing) { if (!opts.silent) toast("Sync en cours…", "info"); return; }
+  const cfg = syncCfg();
+  if (!cfg.token) { openSyncModal(); return; }
+  syncing = true;
+  const btn = document.getElementById("sync-btn");
+  if (btn) btn.textContent = "⏳";
+  try {
+    let remoteTools = [];
+    let gistId = cfg.gistId;
+    if (gistId) {
+      try {
+        const data = await gistGet(gistId, cfg.token);
+        const file = data.files && data.files[SYNC_FILE_NAME];
+        if (file) {
+          const content = (file.truncated && file.raw_url)
+            ? await (await fetch(file.raw_url)).text()
+            : file.content;
+          const parsed = JSON.parse(content);
+          remoteTools = Array.isArray(parsed.tools) ? parsed.tools : [];
+        }
+      } catch (e) {
+        console.warn("Pull failed, will recreate gist:", e);
+        syncCfgSet({ gistId: "" });
+        gistId = "";
+      }
+    }
+    const localTools = await listTools();
+    const merged = mergeToolsForSync(localTools, remoteTools);
+    for (const t of merged) await saveTool(t, { preserveTime: true, skipSync: true });
+
+    const payload = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      tools: merged.map(stripForSync)
+    };
+    const fileSpec = { [SYNC_FILE_NAME]: { content: JSON.stringify(payload, null, 2) } };
+    if (gistId) {
+      await gistPatch(gistId, cfg.token, fileSpec);
+    } else {
+      const created = await gistCreate(cfg.token, fileSpec);
+      syncCfgSet({ gistId: created.id });
+    }
+    syncCfgSet({ last: Date.now() });
+    refresh();
+    if (!opts.silent) {
+      const visible = merged.filter(t => !t.deleted).length;
+      toast(`Sync OK : ${visible} outil(s)`, "success");
+    }
+  } catch (e) {
+    console.error("Sync error:", e);
+    toast("Erreur de sync : " + e.message, "error");
+  } finally {
+    syncing = false;
+    if (btn) btn.textContent = "🔄";
+    updateSyncStatus();
+  }
+}
+
+let autoSyncTimer = null;
+function scheduleAutoSync() {
+  const cfg = syncCfg();
+  if (!cfg.auto || !cfg.token) return;
+  if (autoSyncTimer) clearTimeout(autoSyncTimer);
+  autoSyncTimer = setTimeout(() => performSync({ silent: true }), 4000);
+}
+
+function openSyncModal() {
+  const cfg = syncCfg();
+  document.getElementById("sync-token").value = cfg.token;
+  document.getElementById("sync-gist-id").value = cfg.gistId;
+  document.getElementById("sync-auto").checked = cfg.auto;
+  updateSyncStatus();
+  showModal("sync-modal");
+}
+function updateSyncStatus() {
+  const cfg = syncCfg();
+  const el = document.getElementById("sync-status");
+  if (!el) return;
+  const parts = [];
+  if (cfg.gistId) parts.push(`Gist : <a href="https://gist.github.com/${cfg.gistId}" target="_blank" class="underline text-blue-600 dark:text-blue-400">${cfg.gistId.slice(0, 10)}…</a>`);
+  if (cfg.last) parts.push(`Dernière sync : ${new Date(cfg.last).toLocaleString("fr-FR")}`);
+  el.innerHTML = parts.join(" · ") || "<em>Aucune synchro effectuée</em>";
+
+  const vEl = document.getElementById("sync-version");
+  if (vEl) {
+    vEl.innerHTML = `Version chargée : <strong>${document.lastModified}</strong> · <span class="opacity-70">si différente d'un autre appareil → un cache est en retard</span>`;
+  }
+}
+
+// Force le rechargement en contournant le cache via query string + reload(true)
+function forceReloadApp() {
+  const url = new URL(location.href);
+  url.searchParams.set("_t", String(Date.now()));
+  location.replace(url.toString());
+}
+
+// Tracking de la souris pour la grille néon cyberpunk
+(function() {
+  let mx = -200, my = -200, scheduled = false;
+  const root = document.documentElement;
+  function update() {
+    root.style.setProperty("--mx", mx + "px");
+    root.style.setProperty("--my", my + "px");
+    scheduled = false;
+  }
+  document.addEventListener("pointermove", (e) => {
+    mx = e.clientX; my = e.clientY;
+    if (!scheduled) { scheduled = true; requestAnimationFrame(update); }
+  });
+  document.addEventListener("pointerleave", () => {
+    mx = -300; my = -300;
+    if (!scheduled) { scheduled = true; requestAnimationFrame(update); }
+  });
+})();
+
+//============================================================
+// IndexedDB
+//============================================================
+const DB_NAME = "claude-tools-library";
+const STORE = "tools";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function listTools() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function saveTool(tool, opts) {
+  opts = opts || {};
+  if (!opts.preserveTime) tool.updatedAt = Date.now();
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(tool);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  if (!opts.skipSync && typeof scheduleAutoSync === "function") scheduleAutoSync();
+}
+async function deleteTool(id) {
+  // Soft delete : tombstone pour que la suppression se propage via sync au lieu de ressusciter
+  const db = await openDB();
+  const tool = await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  if (!tool) return;
+  tool.deleted = true;
+  tool.deletedAt = Date.now();
+  tool.source = ""; // libère la place, on garde juste l'id et la date pour la sync
+  tool.thumbnail = null;
+  await saveTool(tool);
+}
+async function purgeDeletedLocally() {
+  // Optionnel : purge les tombstones de plus de 90 jours pour libérer l'espace
+  const cutoff = Date.now() - 90 * 24 * 3600 * 1000;
+  const all = await listTools();
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    for (const t of all) if (t.deleted && (t.deletedAt || 0) < cutoff) store.delete(t.id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+//============================================================
+// Tool helpers
+//============================================================
+function detectName(source, fileName, kind) {
+  const annot = source.match(/\/\/\s*@name\s+(.+)$/m) || source.match(/\/\*\s*@name\s+(.+?)\s*\*\//);
+  if (annot) return annot[1].trim();
+  if (kind === "html") {
+    const t = source.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (t) return t[1].trim();
+  } else {
+    let m;
+    if ((m = source.match(/export\s+default\s+function\s+(\w+)/))) return prettify(m[1]);
+    if ((m = source.match(/export\s+default\s+(\w+)\s*;?\s*$/m)) && m[1] !== "function") return prettify(m[1]);
+    if ((m = source.match(/function\s+(\w+)\s*\(/))) return prettify(m[1]);
+    if ((m = source.match(/const\s+(\w+)\s*=\s*\(/))) return prettify(m[1]);
+  }
+  if (fileName) return fileName.replace(/\.[^.]+$/, "");
+  return "Outil sans nom";
+}
+function prettify(name) {
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, c => c.toUpperCase());
+}
+
+function detectKind(source) {
+  const t = source.trim().slice(0, 500);
+  if (/^<(!doctype|html|\?xml|head|body)/i.test(t)) return "html";
+  if (/<html[\s>]/i.test(t)) return "html";
+  return "jsx";
+}
+
+function normalizeTool(t) {
+  return {
+    id: t.id || uuid(),
+    name: t.name || "Sans nom",
+    source: t.source || "",
+    kind: t.kind || "jsx",
+    description: t.description || "",
+    tags: Array.isArray(t.tags) ? t.tags : [],
+    thumbnail: t.thumbnail || null,
+    addedAt: t.addedAt || Date.now(),
+    lastOpened: t.lastOpened || 0,
+    favorite: !!t.favorite,
+    position: typeof t.position === "number" ? t.position : Date.now(),
+    // Données internes de l'outil (synchronisées via Gist) — mirror du localStorage de l'iframe
+    data: (t.data && typeof t.data === "object") ? t.data : {}
+  };
+}
+
+async function getToolById(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+//============================================================
+// Runtime HTML generator
+//============================================================
+// Shim localStorage : intercepte les accès dans l'iframe et les route vers le parent
+// pour que les données suivent la synchronisation Gist comme le code de l'outil.
+// Au premier lancement, si tool.data est vide, on migre depuis le localStorage réel
+// de cet appareil (one-shot, par appareil).
+function storageShimScript(tool) {
+  return `
+(function() {
+  if (window.__bibStorageShim) return;
+  window.__bibStorageShim = true;
+  var TOOL_ID = ${JSON.stringify(tool.id)};
+  var BIB_KEYS = ["theme", "sync.token", "sync.gist", "sync.auto", "sync.last"];
+  var initial = ${JSON.stringify(tool.data || {})};
+  var mem = {};
+  for (var k in initial) if (Object.prototype.hasOwnProperty.call(initial, k)) mem[k] = initial[k];
+  var migrationTried = {}; // clés déjà tentées en migration paresseuse
+
+  // On capture la référence au vrai localStorage AVANT d'installer le shim,
+  // pour pouvoir migrer paresseusement les valeurs qu'avait l'outil sur cet appareil.
+  var realLS = null;
+  try { realLS = window.localStorage; } catch(e) {}
+
+  function notify(type, key, value) {
+    try { window.parent.postMessage({ __bib: true, type: type, toolId: TOOL_ID, key: key, value: value }, "*"); } catch(e) {}
+  }
+
+  function tryLazyMigrate(key) {
+    if (migrationTried[key]) return null;
+    migrationTried[key] = true;
+    if (BIB_KEYS.indexOf(key) !== -1) return null;
+    if (key.indexOf("sync.") === 0) return null;
+    if (!realLS) return null;
+    try {
+      var val = realLS.getItem(key);
+      if (val !== null) {
+        mem[key] = val;
+        notify("tool-storage-set", key, val);
+        return val;
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  var shim = {
+    get length() { return Object.keys(mem).length; },
+    key: function(i) { return Object.keys(mem)[i] || null; },
+    getItem: function(k) {
+      var key = String(k);
+      if (Object.prototype.hasOwnProperty.call(mem, key)) return String(mem[key]);
+      return tryLazyMigrate(key); // null si pas trouvé
+    },
+    setItem: function(k, v) {
+      var key = String(k), val = String(v);
+      mem[key] = val;
+      migrationTried[key] = true;
+      notify("tool-storage-set", key, val);
+    },
+    removeItem: function(k) {
+      var key = String(k);
+      delete mem[key];
+      migrationTried[key] = true;
+      notify("tool-storage-remove", key, null);
+    },
+    clear: function() {
+      for (var k in mem) if (Object.prototype.hasOwnProperty.call(mem, k)) delete mem[k];
+      notify("tool-storage-clear", null, null);
+    }
+  };
+
+  // Tente de remplacer window.localStorage par le shim
+  try {
+    Object.defineProperty(window, "localStorage", { value: shim, configurable: true, writable: false });
+  } catch (e) {
+    try {
+      var ls = window.localStorage;
+      ls.getItem = shim.getItem;
+      ls.setItem = shim.setItem;
+      ls.removeItem = shim.removeItem;
+      ls.clear = shim.clear;
+    } catch (e2) { console.warn("[bib] storage shim install échec", e, e2); }
+  }
+})();
+`;
+}
+
+const THUMB_CAPTURE_SCRIPT = `
+(function() {
+  if (window.__captureSetup) return;
+  window.__captureSetup = true;
+  async function loadH2C() {
+    if (window.html2canvas) return window.html2canvas;
+    return new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+      s.onload = () => res(window.html2canvas);
+      s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  async function capture(reason) {
+    try {
+      const h2c = await loadH2C();
+      const canvas = await h2c(document.body, { scale: 0.6, useCORS: true, backgroundColor: getComputedStyle(document.body).backgroundColor || "#ffffff", logging: false, allowTaint: true });
+      const maxW = 720;
+      const ratio = canvas.height / canvas.width;
+      const w = Math.min(maxW, canvas.width);
+      const h = Math.round(w * ratio);
+      const out = document.createElement("canvas");
+      out.width = w; out.height = h;
+      out.getContext("2d").drawImage(canvas, 0, 0, w, h);
+      const data = out.toDataURL("image/jpeg", 0.7);
+      window.parent.postMessage({ type: "thumbnail", dataURL: data, reason }, "*");
+    } catch (e) {
+      window.parent.postMessage({ type: "thumbnail-error", error: String(e) }, "*");
+    }
+  }
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.type === "capture-thumbnail") capture("manual");
+  });
+  setTimeout(() => capture("auto"), 2500);
+})();
+`;
+
+function buildJSXRuntime(tool) {
+  const safeName = escapeHtml(tool.name);
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>${safeName}</title>
+<script>${storageShimScript(tool)}<\/script>
+<script src="https://cdn.tailwindcss.com"><\/script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0?deps=react@18.3.1",
+    "recharts": "https://esm.sh/recharts@2.13.3?deps=react@18.3.1",
+    "framer-motion": "https://esm.sh/framer-motion@11.13.1?deps=react@18.3.1",
+    "lodash": "https://esm.sh/lodash@4.17.21",
+    "mathjs": "https://esm.sh/mathjs@13.2.3",
+    "papaparse": "https://esm.sh/papaparse@5.4.1",
+    "d3": "https://esm.sh/d3@7.9.0",
+    "three": "https://esm.sh/three@0.171.0",
+    "tone": "https://esm.sh/tone@15.0.4",
+    "@radix-ui/react-slot": "https://esm.sh/@radix-ui/react-slot?deps=react@18.3.1",
+    "class-variance-authority": "https://esm.sh/class-variance-authority@0.7.1",
+    "clsx": "https://esm.sh/clsx@2.1.1",
+    "tailwind-merge": "https://esm.sh/tailwind-merge@2.5.5"
+  }
+}
+<\/script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"><\/script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; margin: 0; }
+  #error { display: none; padding: 1.5rem; font-family: ui-monospace, Menlo, monospace; color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.5rem; margin: 1.5rem; white-space: pre-wrap; font-size: 13px; }
+  #error button { margin-top: 1rem; background: #dc2626; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; border: 0; cursor: pointer; font-size: 13px; }
+  #loading { padding: 2rem; color: #94a3b8; text-align: center; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="loading">Chargement de l'outil…</div>
+<div id="root"></div>
+<div id="error"></div>
+<script type="module">
+const showError = (msg) => {
+  const el = document.getElementById("error");
+  el.innerHTML = "";
+  const pre = document.createElement("div"); pre.textContent = msg; el.appendChild(pre);
+  const btn = document.createElement("button"); btn.textContent = "✏️ Éditer pour corriger";
+  btn.onclick = () => window.parent.postMessage({ type: "request-edit" }, "*");
+  el.appendChild(btn);
+  el.style.display = "block";
+  document.getElementById("root").style.display = "none";
+  document.getElementById("loading").style.display = "none";
+  window.parent.postMessage({ type: "tool-error", error: msg }, "*");
+};
+window.addEventListener("error", (e) => showError("Erreur: " + e.message + (e.error && e.error.stack ? "\\n\\n" + e.error.stack : "")));
+window.addEventListener("unhandledrejection", (e) => showError("Promise rejetée: " + (e.reason && e.reason.stack || e.reason)));
+
+const source = ${safeJSON(tool.source)};
+const fileName = ${safeJSON(tool.name)};
+
+try {
+  if (!window.Babel) throw new Error("Babel n'a pas pu charger (vérifie ta connexion internet)");
+  const isTS = /tsx?$/i.test(fileName);
+  const transpiled = Babel.transform(source, {
+    presets: [
+      ["react", { runtime: "automatic" }],
+      ...(isTS ? [["typescript", { allExtensions: true, isTSX: true }]] : [])
+    ],
+    filename: isTS ? "tool.tsx" : "tool.jsx"
+  }).code;
+
+  const blob = new Blob([transpiled], { type: "application/javascript" });
+  const url = URL.createObjectURL(blob);
+  const mod = await import(url);
+  const Component = mod.default;
+  if (!Component) throw new Error("Le fichier doit avoir un \\"export default\\" pour le composant principal.");
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  document.getElementById("loading").style.display = "none";
+  createRoot(document.getElementById("root")).render(React.createElement(Component));
+  window.parent.postMessage({ type: "tool-ready" }, "*");
+} catch (err) {
+  showError("Erreur de chargement: " + (err.stack || err.message));
+}
+<\/script>
+<script>${THUMB_CAPTURE_SCRIPT}<\/script>
+</body>
+</html>`;
+}
+
+function buildHTMLRuntime(tool) {
+  // Le shim localStorage doit être PRÉFIXÉ pour s'installer avant tout autre script du fichier utilisateur.
+  // Idéalement juste après <head> ; sinon on prepend.
+  const shim = `<script>${storageShimScript(tool)}<\/script>`;
+  const thumbInjection = `<script>${THUMB_CAPTURE_SCRIPT}<\/script>`;
+  let src = tool.source;
+  if (/<head[^>]*>/i.test(src)) {
+    src = src.replace(/<head[^>]*>/i, (m) => m + shim);
+  } else if (/<html[^>]*>/i.test(src)) {
+    src = src.replace(/<html[^>]*>/i, (m) => m + "<head>" + shim + "</head>");
+  } else {
+    src = shim + src;
+  }
+  return src + thumbInjection;
+}
+
+function buildToolHTML(tool) {
+  return tool.kind === "html" ? buildHTMLRuntime(tool) : buildJSXRuntime(tool);
+}
+
+function buildStandaloneHTML(tool) {
+  if (tool.kind === "html") return tool.source;
+  const noCapture = { ...tool };
+  return buildJSXRuntime(noCapture).replace(THUMB_CAPTURE_SCRIPT, "");
+}
+
+//============================================================
+// Modal helpers
+//============================================================
+function showModal(id) {
+  const el = document.getElementById(id);
+  el.classList.remove("hidden");
+  if (id === "paste-modal" || id === "details-modal") el.classList.add("flex");
+}
+function hideModal(id) {
+  const el = document.getElementById(id);
+  el.classList.add("hidden");
+  el.classList.remove("flex");
+}
+function isAnyModalOpen() {
+  return ["viewer-modal", "editor-modal", "paste-modal", "details-modal"].some(id => !document.getElementById(id).classList.contains("hidden"));
+}
+function topModal() {
+  return ["details-modal", "paste-modal", "editor-modal", "viewer-modal"].find(id => !document.getElementById(id).classList.contains("hidden"));
+}
+
+//============================================================
+// Viewer
+//============================================================
+let currentViewerToolId = null;
+
+async function openViewer(tool) {
+  currentViewerToolId = tool.id;
+  // Re-lecture depuis IndexedDB pour avoir la version la plus fraîche possible
+  // (au cas où un sync silencieux aurait écrit du neuf depuis le dernier render)
+  try {
+    const fresh = await getToolById(tool.id);
+    if (fresh) tool = normalizeTool(fresh);
+  } catch (e) {}
+  tool.lastOpened = Date.now();
+  // preserveTime + skipSync : "consulter" n'est PAS une modification du contenu,
+  // donc on ne bumpe pas updatedAt (sinon ça écrase les éditions venues d'un autre appareil)
+  saveTool(tool, { preserveTime: true, skipSync: true });
+  document.getElementById("viewer-title").textContent = tool.name;
+  const iframe = document.getElementById("viewer-iframe");
+  iframe.removeAttribute("src");
+  iframe.srcdoc = buildToolHTML(tool);
+  iframe.dataset.openedUpdatedAt = String(tool.updatedAt || 0);
+  showModal("viewer-modal");
+
+  // Si on n'a jamais sync (ou pas récemment) ET qu'on est configuré : déclenche un pull silencieux,
+  // puis (si l'outil ouvert a été mis à jour par le pull) recharge le viewer automatiquement.
+  const cfg = (typeof syncCfg === "function") ? syncCfg() : null;
+  if (cfg && cfg.token && cfg.gistId) {
+    const last = cfg.last || 0;
+    const stale = Date.now() - last > 10000; // pas de sync dans les 10 dernières secondes
+    if (stale) {
+      performSync({ silent: true }).then(async () => {
+        if (currentViewerToolId !== tool.id) return; // user a fermé entretemps
+        const updated = await getToolById(tool.id);
+        if (!updated) return;
+        const newTime = updated.updatedAt || 0;
+        const oldTime = parseInt(iframe.dataset.openedUpdatedAt || "0", 10);
+        if (newTime > oldTime) {
+          toast("Nouvelle version reçue — rechargement du viewer", "info");
+          iframe.srcdoc = buildToolHTML(normalizeTool(updated));
+          iframe.dataset.openedUpdatedAt = String(newTime);
+        }
+      });
+    }
+  }
+}
+
+function closeViewer() {
+  const iframe = document.getElementById("viewer-iframe");
+  iframe.removeAttribute("srcdoc");
+  iframe.src = "about:blank";
+  hideModal("viewer-modal");
+  currentViewerToolId = null;
+}
+
+function reloadViewer() {
+  const tool = allTools.find(t => t.id === currentViewerToolId);
+  if (tool) openViewer(tool);
+}
+
+function openInNewTab(tool) {
+  // window.open("") puis document.write : la nouvelle fenêtre hérite de l'origine du parent
+  // (au lieu d'une origine null comme avec un blob URL) → localStorage accessible
+  const w = window.open("", "_blank");
+  if (!w) { toast("Popup bloquée par le navigateur", "error"); return; }
+  w.document.open();
+  w.document.write(buildToolHTML(tool));
+  w.document.close();
+}
+
+function captureThumbnailNow() {
+  const iframe = document.getElementById("viewer-iframe");
+  if (iframe && iframe.contentWindow) {
+    iframe.contentWindow.postMessage({ type: "capture-thumbnail" }, "*");
+    toast("Capture en cours…", "info");
+  }
+}
+
+// Listen for messages from tool iframes
+window.addEventListener("message", async (e) => {
+  if (!e.data || typeof e.data !== "object") return;
+  if (e.data.type === "thumbnail" && currentViewerToolId) {
+    const tool = allTools.find(t => t.id === currentViewerToolId);
+    if (tool) {
+      tool.thumbnail = e.data.dataURL;
+      // Les miniatures sont locales (non synchronisées), donc on préserve updatedAt
+      // pour ne pas faire passer la version locale pour "plus récente" que celle du Gist.
+      await saveTool(tool, { preserveTime: true, skipSync: true });
+      render();
+      if (e.data.reason === "manual") toast("Miniature mise à jour", "success");
+    }
+  } else if (e.data.type === "thumbnail-error") {
+    console.warn("Thumbnail capture failed:", e.data.error);
+    if (e.data.reason === "manual") toast("Capture échouée", "error");
+  } else if (e.data.type === "request-edit" && currentViewerToolId) {
+    const tool = allTools.find(t => t.id === currentViewerToolId);
+    if (tool) { closeViewer(); openEditor(tool); }
+  } else if (e.data.__bib && (e.data.type === "tool-storage-set" || e.data.type === "tool-storage-remove" || e.data.type === "tool-storage-clear")) {
+    handleStorageMessage(e.data);
+  }
+});
+
+//============================================================
+// Tool storage (localStorage shim côté parent)
+//============================================================
+// Bufferise les writes par-outil et flush en débounce 200ms pour éviter
+// de marteler IndexedDB sur des frappes rapides.
+const __storageBuffer = new Map(); // toolId -> [{ type, key, value }]
+const __storageFlushTimers = new Map();
+
+function handleStorageMessage(msg) {
+  const toolId = msg.toolId;
+  if (!toolId) return;
+  if (!__storageBuffer.has(toolId)) __storageBuffer.set(toolId, []);
+  __storageBuffer.get(toolId).push({ type: msg.type, key: msg.key, value: msg.value });
+  if (__storageFlushTimers.has(toolId)) clearTimeout(__storageFlushTimers.get(toolId));
+  __storageFlushTimers.set(toolId, setTimeout(() => flushStorageBuffer(toolId), 200));
+}
+
+async function flushStorageBuffer(toolId) {
+  const changes = __storageBuffer.get(toolId) || [];
+  __storageBuffer.set(toolId, []);
+  __storageFlushTimers.delete(toolId);
+  if (!changes.length) return;
+  const tool = await getToolById(toolId);
+  if (!tool) return;
+  if (!tool.data || typeof tool.data !== "object") tool.data = {};
+  let touched = false;
+  for (const c of changes) {
+    if (c.type === "tool-storage-set") {
+      if (tool.data[c.key] !== c.value) { tool.data[c.key] = c.value; touched = true; }
+    } else if (c.type === "tool-storage-remove") {
+      if (c.key in tool.data) { delete tool.data[c.key]; touched = true; }
+    } else if (c.type === "tool-storage-clear") {
+      if (Object.keys(tool.data).length > 0) { tool.data = {}; touched = true; }
+    }
+  }
+  if (touched) {
+    await saveTool(tool); // bump updatedAt → autoSync sera déclenché
+  }
+}
+
+//============================================================
+// Editor (CodeMirror lazy-loaded)
+//============================================================
+let cmInstance = null;
+let currentEditorToolId = null;
+
+async function loadCSS(href) {
+  return new Promise((res, rej) => {
+    if ([...document.styleSheets].some(s => s.href === href)) return res();
+    const l = document.createElement("link");
+    l.rel = "stylesheet"; l.href = href; l.onload = res; l.onerror = rej;
+    document.head.appendChild(l);
+  });
+}
+async function loadScript(src) {
+  return new Promise((res, rej) => {
+    if ([...document.scripts].some(s => s.src === src)) return res();
+    const s = document.createElement("script");
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+async function loadCodeMirror() {
+  if (window.CodeMirror) return;
+  await loadCSS("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.css");
+  await loadCSS("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/material-darker.min.css");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/xml/xml.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/javascript/javascript.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/jsx/jsx.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/css/css.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/htmlmixed/htmlmixed.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/closebrackets.min.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/matchbrackets.min.js");
+}
+
+async function openEditor(tool) {
+  currentEditorToolId = tool.id;
+  document.getElementById("editor-name").value = tool.name;
+  document.getElementById("editor-status").textContent = "Chargement de l'éditeur…";
+  showModal("editor-modal");
+  const mount = document.getElementById("editor-mount");
+  mount.innerHTML = "";
+  try {
+    await loadCodeMirror();
+    const mode = tool.kind === "html" ? "htmlmixed" : "jsx";
+    const ta = document.createElement("textarea");
+    mount.appendChild(ta);
+    ta.value = tool.source;
+    cmInstance = CodeMirror.fromTextArea(ta, {
+      mode,
+      lineNumbers: true,
+      theme: document.documentElement.classList.contains("dark") ? "material-darker" : "default",
+      autoCloseBrackets: true,
+      matchBrackets: true,
+      indentUnit: 2,
+      tabSize: 2,
+      lineWrapping: false
+    });
+    cmInstance.setSize("100%", "100%");
+    document.getElementById("editor-status").textContent = "";
+  } catch (e) {
+    mount.innerHTML = "";
+    const ta = document.createElement("textarea");
+    ta.className = "code-area w-full h-full p-3 bg-slate-50 dark:bg-slate-900 border-0 focus:outline-none";
+    ta.value = tool.source;
+    mount.appendChild(ta);
+    cmInstance = { getValue: () => ta.value, toTextArea: () => {}, setOption: () => {} };
+    document.getElementById("editor-status").textContent = "Éditeur basique (CodeMirror indisponible)";
+  }
+}
+
+async function saveEditor(relaunch) {
+  if (!currentEditorToolId) return;
+  const tool = allTools.find(t => t.id === currentEditorToolId);
+  if (!tool) return;
+  const newSource = cmInstance ? cmInstance.getValue() : "";
+  const newName = document.getElementById("editor-name").value.trim() || tool.name;
+  tool.source = newSource;
+  tool.name = newName;
+  await saveTool(tool);
+  refresh();
+  toast("Sauvegardé", "success");
+  if (relaunch) {
+    closeEditor();
+    openViewer(tool);
+  }
+}
+
+function closeEditor() {
+  if (cmInstance && cmInstance.toTextArea) try { cmInstance.toTextArea(); } catch(e){}
+  cmInstance = null;
+  currentEditorToolId = null;
+  hideModal("editor-modal");
+}
+
+//============================================================
+// Paste modal
+//============================================================
+function openPasteModal() {
+  document.getElementById("paste-name").value = "";
+  document.getElementById("paste-textarea").value = "";
+  document.getElementById("paste-kind").value = "auto";
+  showModal("paste-modal");
+  setTimeout(() => document.getElementById("paste-textarea").focus(), 50);
+}
+
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    document.getElementById("paste-textarea").value = text;
+    toast("Collé depuis le presse-papier", "success");
+  } catch (e) {
+    toast("Le presse-papier n'est pas accessible — colle manuellement (Ctrl+V)", "error");
+  }
+}
+
+async function submitPaste() {
+  const source = document.getElementById("paste-textarea").value;
+  if (!source.trim()) { toast("Le code est vide", "error"); return; }
+  let kind = document.getElementById("paste-kind").value;
+  if (kind === "auto") kind = detectKind(source);
+  const nameField = document.getElementById("paste-name").value.trim();
+  const name = nameField || detectName(source, "", kind);
+  const tool = normalizeTool({ source, kind, name });
+  await saveTool(tool);
+  refresh();
+  hideModal("paste-modal");
+  toast(`Ajouté: ${name}`, "success");
+}
+
+//============================================================
+// Details modal
+//============================================================
+let currentDetailsToolId = null;
+function openDetails(tool) {
+  currentDetailsToolId = tool.id;
+  document.getElementById("details-name").value = tool.name;
+  document.getElementById("details-description").value = tool.description || "";
+  document.getElementById("details-tags").value = (tool.tags || []).join(", ");
+  showModal("details-modal");
+  setTimeout(() => document.getElementById("details-name").focus(), 50);
+}
+async function saveDetails() {
+  if (!currentDetailsToolId) return;
+  const tool = allTools.find(t => t.id === currentDetailsToolId);
+  if (!tool) return;
+  tool.name = document.getElementById("details-name").value.trim() || tool.name;
+  tool.description = document.getElementById("details-description").value.trim();
+  tool.tags = document.getElementById("details-tags").value.split(",").map(s => s.trim()).filter(Boolean);
+  await saveTool(tool);
+  refresh();
+  hideModal("details-modal");
+  toast("Détails enregistrés", "success");
+}
+
+//============================================================
+// Grid rendering
+//============================================================
+const $grid = document.getElementById("grid");
+const $empty = document.getElementById("empty");
+const $search = document.getElementById("search");
+const $tagFilter = document.getElementById("tag-filter");
+
+let allTools = [];
+let searchQuery = "";
+let tagFilter = "";
+
+async function refresh() {
+  const raw = await listTools();
+  // Filtre les tombstones (outils supprimés conservés pour propager la suppression via sync)
+  allTools = raw.map(normalizeTool).filter(t => !t.deleted);
+  renderTagFilter();
+  render();
+}
+
+function renderTagFilter() {
+  const tags = new Set();
+  allTools.forEach(t => (t.tags || []).forEach(tag => tags.add(tag)));
+  const current = $tagFilter.value;
+  $tagFilter.innerHTML = '<option value="">Tous les tags</option>' +
+    [...tags].sort().map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+  if ([...tags].includes(current)) $tagFilter.value = current;
+}
+
+function filterTools() {
+  const q = searchQuery.toLowerCase().trim();
+  return allTools.filter(t => {
+    if (tagFilter && !(t.tags || []).includes(tagFilter)) return false;
+    if (q) {
+      const hay = (t.name + " " + (t.description || "") + " " + (t.tags || []).join(" ") + " " + t.source).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function render() {
+  if (allTools.length === 0) {
+    $empty.classList.remove("hidden");
+    $grid.innerHTML = "";
+    return;
+  }
+  $empty.classList.add("hidden");
+
+  const filtered = filterTools();
+  const sorted = [...filtered].sort((a, b) => {
+    if (!!a.favorite !== !!b.favorite) return a.favorite ? -1 : 1;
+    return (a.position || 0) - (b.position || 0);
+  });
+
+  $grid.innerHTML = sorted.map(tool => cardHTML(tool)).join("");
+}
+
+function cardHTML(tool) {
+  const date = new Date(tool.addedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  const size = Math.max(1, Math.round(tool.source.length / 1024));
+  const kindBadge = tool.kind === "html"
+    ? '<span class="tag-chip bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300">HTML</span>'
+    : '<span class="tag-chip bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">JSX</span>';
+  const tagChips = (tool.tags || []).map(t =>
+    `<button data-tag-click="${escapeHtml(t)}" class="tag-chip bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600">${escapeHtml(t)}</button>`
+  ).join(" ");
+
+  const thumb = tool.thumbnail
+    ? `<img src="${tool.thumbnail}" alt="" class="w-full h-32 object-cover object-top">`
+    : `<div class="w-full h-32 thumb-placeholder flex items-center justify-center text-white text-3xl font-bold">${escapeHtml(tool.name.charAt(0).toUpperCase())}</div>`;
+
+  return `
+    <div class="card bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-lg hover:border-slate-300 dark:hover:border-slate-600 transition-all flex flex-col" draggable="true" data-card-id="${tool.id}">
+      <div class="relative cursor-pointer" data-launch-id="${tool.id}">
+        ${thumb}
+        <button data-fav-id="${tool.id}" class="absolute top-2 right-2 text-xl leading-none w-8 h-8 rounded-full bg-white/90 dark:bg-slate-900/80 ${tool.favorite ? "text-yellow-400" : "text-slate-400 hover:text-yellow-400"}" title="Favori">${tool.favorite ? "★" : "☆"}</button>
+      </div>
+      <div class="p-3 flex flex-col gap-2 flex-1">
+        <div class="flex items-start gap-2">
+          <h3 class="font-medium text-slate-900 dark:text-slate-100 break-words flex-1 leading-tight" contenteditable="true" spellcheck="false" data-name-id="${tool.id}">${escapeHtml(tool.name)}</h3>
+          ${kindBadge}
+        </div>
+        ${tool.description ? `<p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">${escapeHtml(tool.description)}</p>` : ""}
+        ${tagChips ? `<div class="flex flex-wrap gap-1">${tagChips}</div>` : ""}
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-auto">${date} · ${size} Ko</p>
+        <div class="flex gap-1.5 mt-1">
+          <button data-launch-id="${tool.id}" class="flex-1 px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 font-medium">Ouvrir</button>
+          <button data-edit-id="${tool.id}" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-xs hover:bg-slate-100 dark:hover:bg-slate-700" title="Éditer le code">✏️</button>
+          <button data-details-id="${tool.id}" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-xs hover:bg-slate-100 dark:hover:bg-slate-700" title="Détails / Tags">⚙️</button>
+          <button data-menu-id="${tool.id}" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-xs hover:bg-slate-100 dark:hover:bg-slate-700" title="Plus">⋯</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+//============================================================
+// Grid actions (event delegation)
+//============================================================
+$grid.addEventListener("click", async (e) => {
+  const tagBtn = e.target.closest("[data-tag-click]");
+  if (tagBtn) {
+    $tagFilter.value = tagBtn.dataset.tagClick;
+    tagFilter = tagBtn.dataset.tagClick;
+    render();
+    return;
+  }
+  const t = e.target.closest("button, [data-launch-id]");
+  if (!t) return;
+  const id = t.dataset.launchId || t.dataset.editId || t.dataset.detailsId || t.dataset.menuId || t.dataset.favId;
+  const tool = id && allTools.find(x => x.id === id);
+  if (!tool) return;
+  if (t.dataset.launchId) {
+    openViewer(tool);
+  } else if (t.dataset.editId) {
+    openEditor(tool);
+  } else if (t.dataset.detailsId) {
+    openDetails(tool);
+  } else if (t.dataset.menuId) {
+    e.stopPropagation();
+    showCardMenu(t, tool);
+  } else if (t.dataset.favId) {
+    e.stopPropagation();
+    tool.favorite = !tool.favorite;
+    await saveTool(tool);
+    render();
+  }
+});
+
+$grid.addEventListener("blur", async (e) => {
+  if (e.target.dataset && e.target.dataset.nameId) {
+    const id = e.target.dataset.nameId;
+    const newName = e.target.textContent.trim().replace(/\s+/g, " ");
+    const tool = allTools.find(x => x.id === id);
+    if (tool && newName && newName !== tool.name) {
+      tool.name = newName;
+      await saveTool(tool);
+      refresh();
+    } else if (tool) {
+      e.target.textContent = tool.name;
+    }
+  }
+}, true);
+
+$grid.addEventListener("keydown", (e) => {
+  if (e.target.dataset && e.target.dataset.nameId && e.key === "Enter") {
+    e.preventDefault();
+    e.target.blur();
+  }
+});
+
+//============================================================
+// Drag reorder
+//============================================================
+let draggedId = null;
+$grid.addEventListener("dragstart", (e) => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  draggedId = card.dataset.cardId;
+  card.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  try { e.dataTransfer.setData("text/plain", draggedId); } catch(_){}
+});
+$grid.addEventListener("dragend", () => {
+  document.querySelectorAll(".card.dragging").forEach(c => c.classList.remove("dragging"));
+  document.querySelectorAll(".card.drag-over").forEach(c => c.classList.remove("drag-over"));
+  draggedId = null;
+});
+$grid.addEventListener("dragover", (e) => {
+  if (!draggedId) return;
+  const card = e.target.closest(".card");
+  if (!card || card.dataset.cardId === draggedId) return;
+  e.preventDefault();
+  document.querySelectorAll(".card.drag-over").forEach(c => c.classList.remove("drag-over"));
+  card.classList.add("drag-over");
+});
+$grid.addEventListener("drop", async (e) => {
+  if (!draggedId) return;
+  const target = e.target.closest(".card");
+  if (!target || target.dataset.cardId === draggedId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const dragged = allTools.find(x => x.id === draggedId);
+  const tgt = allTools.find(x => x.id === target.dataset.cardId);
+  if (!dragged || !tgt) return;
+  const sortedFavs = allTools.filter(t => t.favorite).sort((a,b)=>(a.position||0)-(b.position||0));
+  const sortedRest = allTools.filter(t => !t.favorite).sort((a,b)=>(a.position||0)-(b.position||0));
+  const list = dragged.favorite === tgt.favorite ? (dragged.favorite ? sortedFavs : sortedRest) : null;
+  if (!list) return;
+  list.splice(list.indexOf(dragged), 1);
+  list.splice(list.indexOf(tgt), 0, dragged);
+  for (let i = 0; i < list.length; i++) {
+    list[i].position = i * 100;
+    await saveTool(list[i]);
+  }
+  render();
+});
+
+//============================================================
+// Card "more" menu
+//============================================================
+const $menu = document.getElementById("card-menu");
+let menuToolId = null;
+
+function showCardMenu(button, tool) {
+  menuToolId = tool.id;
+  const r = button.getBoundingClientRect();
+  $menu.style.left = Math.min(r.right - 180, window.innerWidth - 200) + "px";
+  $menu.style.top = (r.bottom + 4) + "px";
+  $menu.classList.remove("hidden");
+}
+function hideCardMenu() { $menu.classList.add("hidden"); menuToolId = null; }
+document.addEventListener("click", (e) => {
+  if (!$menu.contains(e.target) && !e.target.closest("[data-menu-id]")) hideCardMenu();
+});
+
+$menu.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button");
+  if (!btn || !menuToolId) return;
+  const tool = allTools.find(x => x.id === menuToolId);
+  if (!tool) return;
+  const action = btn.dataset.action;
+  hideCardMenu();
+
+  switch (action) {
+    case "open": openViewer(tool); break;
+    case "open-tab": openInNewTab(tool); break;
+    case "edit": openEditor(tool); break;
+    case "details": openDetails(tool); break;
+    case "duplicate": {
+      const copy = normalizeTool({ ...tool, id: uuid(), name: tool.name + " (copie)", addedAt: Date.now(), position: Date.now() });
+      await saveTool(copy);
+      refresh();
+      toast("Dupliqué", "success");
+      break;
+    }
+    case "download": downloadSource(tool); break;
+    case "standalone": downloadStandalone(tool); break;
+    case "share": await copyShareLink(tool); break;
+    case "delete":
+      if (confirm(`Supprimer "${tool.name}" ?`)) {
+        await deleteTool(tool.id);
+        refresh();
+      }
+      break;
+  }
+});
+
+function downloadSource(tool) {
+  const ext = tool.kind === "html" ? "html" : "jsx";
+  const blob = new Blob([tool.source], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${tool.name}.${ext}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadStandalone(tool) {
+  const html = buildStandaloneHTML(tool);
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${tool.name}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function copyShareLink(tool) {
+  try {
+    const payload = { v: 1, name: tool.name, source: tool.source, kind: tool.kind, description: tool.description, tags: tool.tags };
+    const json = JSON.stringify(payload);
+    const b64 = btoa(unescape(encodeURIComponent(json)));
+    const url = location.href.split("#")[0] + "#tool=" + b64;
+    if (url.length > 8000) {
+      toast(`Lien très long (${Math.round(url.length/1024)} Ko). Certaines apps peuvent le tronquer.`, "info");
+    }
+    await navigator.clipboard.writeText(url);
+    toast("Lien copié dans le presse-papier", "success");
+  } catch (e) {
+    toast("Copie échouée: " + e.message, "error");
+  }
+}
+
+async function handleShareHash() {
+  if (!location.hash.startsWith("#tool=")) return;
+  try {
+    const b64 = location.hash.slice(6);
+    const json = decodeURIComponent(escape(atob(b64)));
+    const payload = JSON.parse(json);
+    if (confirm(`Importer l'outil partagé "${payload.name}" ?`)) {
+      const tool = normalizeTool({ ...payload, id: uuid(), addedAt: Date.now(), position: Date.now() });
+      await saveTool(tool);
+      refresh();
+      toast(`Importé: ${tool.name}`, "success");
+    }
+  } catch (e) {
+    console.error("Bad share hash:", e);
+    toast("Lien partagé invalide", "error");
+  }
+  history.replaceState(null, "", location.href.split("#")[0]);
+}
+
+//============================================================
+// File handling
+//============================================================
+async function addFiles(files) {
+  let added = 0;
+  const errors = [];
+  for (const file of files) {
+    try {
+      const source = await file.text();
+      const kind = /\.html?$/i.test(file.name) ? "html" : "jsx";
+      const tool = normalizeTool({
+        source,
+        kind,
+        name: detectName(source, file.name, kind),
+        position: Date.now() + added
+      });
+      await saveTool(tool);
+      added++;
+    } catch (err) {
+      console.error("addFiles error", file.name, err);
+      errors.push(`${file.name}: ${err.message}`);
+    }
+  }
+  if (errors.length) toast("Erreurs: " + errors.join(" | "), "error");
+  if (added > 0) { refresh(); toast(`${added} outil(s) ajouté(s)`, "success"); }
+}
+
+//============================================================
+// Wire-up
+//============================================================
+document.getElementById("add-btn").addEventListener("click", () => document.getElementById("file-input").click());
+document.getElementById("file-input").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
+document.getElementById("paste-btn").addEventListener("click", openPasteModal);
+document.getElementById("paste-close").addEventListener("click", () => hideModal("paste-modal"));
+document.getElementById("paste-save").addEventListener("click", submitPaste);
+document.getElementById("paste-clipboard").addEventListener("click", pasteFromClipboard);
+// theme-btn déclenché via onclick inline (évite le double-toggle)
+document.getElementById("details-close").addEventListener("click", () => hideModal("details-modal"));
+document.getElementById("details-cancel").addEventListener("click", () => hideModal("details-modal"));
+document.getElementById("details-save").addEventListener("click", saveDetails);
+document.getElementById("viewer-close").addEventListener("click", closeViewer);
+document.getElementById("viewer-reload").addEventListener("click", reloadViewer);
+document.getElementById("viewer-thumb").addEventListener("click", captureThumbnailNow);
+document.getElementById("viewer-newtab").addEventListener("click", () => {
+  const t = allTools.find(x => x.id === currentViewerToolId); if (t) openInNewTab(t);
+});
+document.getElementById("viewer-edit").addEventListener("click", () => {
+  const t = allTools.find(x => x.id === currentViewerToolId); if (t) { closeViewer(); openEditor(t); }
+});
+document.getElementById("editor-cancel").addEventListener("click", closeEditor);
+document.getElementById("editor-save").addEventListener("click", () => saveEditor(true));
+document.getElementById("editor-save-only").addEventListener("click", () => saveEditor(false));
+
+$search.addEventListener("input", () => { searchQuery = $search.value; render(); });
+$tagFilter.addEventListener("change", () => { tagFilter = $tagFilter.value; render(); });
+
+//============================================================
+// Drag & drop file zone
+//============================================================
+const $overlay = document.getElementById("drop-overlay");
+let dragCounter = 0;
+function showOverlay() { $overlay.classList.remove("hidden"); $overlay.classList.add("flex"); }
+function hideOverlay() { $overlay.classList.add("hidden"); $overlay.classList.remove("flex"); }
+window.addEventListener("dragenter", (e) => {
+  if (!e.dataTransfer || !e.dataTransfer.types || !e.dataTransfer.types.includes("Files")) return;
+  e.preventDefault();
+  dragCounter++;
+  showOverlay();
+});
+window.addEventListener("dragover", (e) => {
+  if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes("Files")) e.preventDefault();
+});
+window.addEventListener("dragleave", () => {
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; hideOverlay(); }
+});
+window.addEventListener("drop", (e) => {
+  if (!e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  e.preventDefault();
+  dragCounter = 0;
+  hideOverlay();
+  addFiles(e.dataTransfer.files);
+});
+
+//============================================================
+// Sync wire-up
+//============================================================
+document.getElementById("sync-btn").addEventListener("click", (e) => {
+  if (e.shiftKey || !syncCfg().token) { openSyncModal(); return; }
+  performSync();
+});
+document.getElementById("sync-btn").addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  openSyncModal();
+});
+document.getElementById("sync-close").addEventListener("click", () => hideModal("sync-modal"));
+document.getElementById("sync-save").addEventListener("click", () => {
+  syncCfgSet({
+    token: document.getElementById("sync-token").value.trim(),
+    gistId: document.getElementById("sync-gist-id").value.trim(),
+    auto: document.getElementById("sync-auto").checked
+  });
+  updateSyncStatus();
+  toast("Réglages enregistrés", "success");
+});
+document.getElementById("sync-now").addEventListener("click", () => {
+  syncCfgSet({
+    token: document.getElementById("sync-token").value.trim(),
+    gistId: document.getElementById("sync-gist-id").value.trim(),
+    auto: document.getElementById("sync-auto").checked
+  });
+  hideModal("sync-modal");
+  performSync();
+});
+document.getElementById("sync-disconnect").addEventListener("click", () => {
+  if (!confirm("Déconnecter la sync ? (Les données locales restent intactes, le Gist distant aussi)")) return;
+  syncCfgSet({ token: "", gistId: "", auto: false });
+  hideModal("sync-modal");
+  toast("Sync déconnectée", "info");
+});
+document.getElementById("sync-force-reload").addEventListener("click", () => {
+  if (!confirm("Vider le cache et recharger ? La page va se rafraîchir pour récupérer la toute dernière version depuis GitHub.")) return;
+  forceReloadApp();
+});
+
+//============================================================
+// Export / Import
+//============================================================
+document.getElementById("export-btn").addEventListener("click", async () => {
+  const tools = await listTools();
+  const data = JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), tools }, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `bibliotheque-claude-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(`Export: ${tools.length} outil(s)`, "success");
+});
+document.getElementById("import-btn").addEventListener("click", () => document.getElementById("import-input").click());
+document.getElementById("import-input").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.tools)) throw new Error("Format invalide");
+    for (const t of data.tools) await saveTool(normalizeTool(t));
+    refresh();
+    toast(`${data.tools.length} outil(s) importé(s)`, "success");
+  } catch (err) {
+    toast("Import échoué: " + err.message, "error");
+  }
+  e.target.value = "";
+});
+
+//============================================================
+// Keyboard shortcuts
+//============================================================
+document.addEventListener("keydown", (e) => {
+  const inField = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
+  if (e.key === "Escape") {
+    if (!$menu.classList.contains("hidden")) { hideCardMenu(); return; }
+    const top = topModal();
+    if (top === "viewer-modal") closeViewer();
+    else if (top === "editor-modal") closeEditor();
+    else if (top === "paste-modal") hideModal("paste-modal");
+    else if (top === "details-modal") hideModal("details-modal");
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+    e.preventDefault();
+    $search.focus(); $search.select();
+    return;
+  }
+  if (e.key === "/" && !inField) {
+    e.preventDefault();
+    $search.focus();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "s" && !document.getElementById("editor-modal").classList.contains("hidden")) {
+    e.preventDefault();
+    saveEditor(false);
+  }
+});
+
+//============================================================
+// Init
+//============================================================
+function init() {
+  applyTheme(localStorage.getItem("theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  refresh().then(handleShareHash).then(() => {
+    // Si sync auto activée et configurée : pull silencieux au chargement
+    const cfg = syncCfg();
+    if (cfg.token && cfg.auto) {
+      setTimeout(() => performSync({ silent: true }), 800);
+      // Polling : tous les 60s, fait une sync silencieuse pour récupérer les changements
+      // venant d'autres appareils même quand cet appareil n'édite rien.
+      setInterval(() => {
+        if (document.visibilityState !== "visible") return; // pas de spam quand l'onglet est en arrière-plan
+        const c = syncCfg();
+        if (c.token && c.auto) performSync({ silent: true });
+      }, 60000);
+    }
+    updateSyncStatus();
+  });
+  // Pull dès que l'onglet redevient visible (après changement d'appli sur mobile)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      const c = syncCfg();
+      if (c.token && c.auto && Date.now() - (c.last || 0) > 10000) {
+        performSync({ silent: true });
+      }
+    }
+  });
+}
+init();
+</script>
+
+</body>
+</html>
