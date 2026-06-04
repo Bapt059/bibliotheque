@@ -560,7 +560,9 @@ window.toggleTheme = function() {};
         <summary class="cursor-pointer font-medium">En cas de désynchronisation entre appareils</summary>
         <p class="mt-2 text-slate-600 dark:text-slate-400">Si un appareil affiche un contenu périmé, ouvre la bibliothèque sur l'appareil qui a la <strong>bonne version</strong>, puis clique ci-dessous : son contenu deviendra la référence et écrasera le Gist. Les autres appareils le récupéreront ensuite.</p>
         <button id="sync-force-push" class="mt-2 px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-900/30">⬆ Cet appareil fait référence</button>
+        <button id="sync-diagnose" class="mt-2 ml-2 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">🔬 Diagnostic</button>
       </details>
+      <div id="sync-diag-out" class="hidden text-[11px] font-mono whitespace-pre-wrap bg-slate-900 text-slate-100 rounded-lg p-3 max-h-60 overflow-auto"></div>
       <div class="flex flex-wrap justify-end gap-2 pt-2">
         <button id="sync-force-reload" class="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/30" title="Vide le cache navigateur et recharge la dernière version depuis GitHub">🔁 Forcer mise à jour</button>
         <button id="sync-disconnect" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-red-50 hover:border-red-200 hover:text-red-600">Déconnecter</button>
@@ -861,6 +863,61 @@ async function forcePushThisDevice() {
     if (btn) btn.textContent = "🔄";
     updateSyncStatus();
   }
+}
+
+// Diagnostic : montre l'état réel de la sync (Gist, comparaison local ↔ distant par outil).
+// Sert à voir d'un coup d'œil si les appareils sont sur le MÊME Gist et si les données y sont.
+async function diagnoseSync() {
+  const out = document.getElementById("sync-diag-out");
+  out.classList.remove("hidden");
+  out.textContent = "Analyse en cours…";
+  const cfg = syncCfg();
+  const L = [];
+  L.push("=== DIAGNOSTIC SYNC ===");
+  L.push("Gist ID (cet appareil) : " + (cfg.gistId || "(AUCUN)"));
+  L.push("Token : " + (cfg.token ? "présent" : "ABSENT"));
+  L.push("Sync auto : " + (cfg.auto ? "oui" : "non"));
+  L.push("Version app : " + document.lastModified);
+  try {
+    const local = (await listTools()).filter(t => !t.deleted);
+    L.push("Outils locaux : " + local.length);
+    if (cfg.token && cfg.gistId) {
+      let remote = [];
+      let gistUpdated = "?";
+      const data = await gistGet(cfg.gistId, cfg.token);
+      gistUpdated = data.updated_at || "?";
+      const file = data.files && data.files[SYNC_FILE_NAME];
+      if (!file) {
+        L.push("⚠️ Fichier '" + SYNC_FILE_NAME + "' ABSENT du Gist");
+      } else {
+        const content = (file.truncated && file.raw_url)
+          ? await (await fetch(file.raw_url + "?_cb=" + Date.now(), { cache: "no-store" })).text()
+          : file.content;
+        const parsed = JSON.parse(content);
+        remote = Array.isArray(parsed.tools) ? parsed.tools.filter(t => !t.deleted) : [];
+      }
+      L.push("Outils dans le Gist : " + remote.length + "  (modifié " + gistUpdated + ")");
+      L.push("");
+      L.push("Par outil  [local | gist | identique] :");
+      for (const lt of local) {
+        const rt = remote.find(r => r.id === lt.id);
+        const lKeys = lt.data ? Object.keys(lt.data).length : 0;
+        const rKeys = rt && rt.data ? Object.keys(rt.data).length : 0;
+        const same = rt ? (JSON.stringify(lt.data || {}) === JSON.stringify(rt.data || {})) : false;
+        L.push("• " + lt.name);
+        L.push("   local: " + lKeys + " clé(s), maj " + new Date(lt.updatedAt || 0).toLocaleString("fr-FR"));
+        L.push("   gist : " + (rt ? (rKeys + " clé(s), maj " + new Date(rt.updatedAt || 0).toLocaleString("fr-FR")) : "ABSENT"));
+        L.push("   données identiques : " + (rt ? (same ? "OUI" : "NON ⚠️") : "—"));
+      }
+    } else {
+      L.push("→ Pas de Gist/token configuré : impossible de comparer.");
+    }
+  } catch (e) {
+    L.push("ERREUR : " + e.message);
+  }
+  const report = L.join("\n");
+  out.textContent = report;
+  console.log("[DIAGNOSTIC SYNC]\n" + report);
 }
 
 function openSyncModal() {
@@ -2102,6 +2159,7 @@ document.getElementById("sync-force-push").addEventListener("click", () => {
   if (!confirm("Faire de CET appareil la référence ?\n\nSon contenu actuel écrasera le Gist et sera propagé aux autres appareils. À utiliser uniquement depuis l'appareil qui a la bonne version.")) return;
   forcePushThisDevice();
 });
+document.getElementById("sync-diagnose").addEventListener("click", diagnoseSync);
 
 //============================================================
 // Export / Import
