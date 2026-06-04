@@ -657,24 +657,43 @@ function syncCfgSet(patch) {
 }
 
 async function gistGet(gistId, token) {
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" }
+  // cache:no-store + cache-buster + no-cache headers : sinon le navigateur (surtout mobile)
+  // peut renvoyer une réponse en cache → on lit alors un Gist PÉRIMÉ et l'appareil paraît "désync".
+  const res = await fetch(`https://api.github.com/gists/${gistId}?_cb=${Date.now()}`, {
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Cache-Control": "no-cache, no-store, max-age=0",
+      "If-None-Match": "" // neutralise la revalidation ETag → force un corps frais
+    }
   });
-  if (!res.ok) throw new Error(`Gist GET ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const err = new Error(`Gist GET ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
-async function gistPatch(gistId, token, files) {
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+async function gistPatch(gistId, token, files, opts) {
+  opts = opts || {};
+  const init = {
     method: "PATCH",
+    cache: "no-store",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
     body: JSON.stringify({ files })
-  });
+  };
+  // keepalive : permet à la requête de survivre à la mise en arrière-plan de l'onglet (mobile).
+  // Limité à 64 Ko de corps ; on ne l'active que si le payload est petit.
+  if (opts.keepalive && init.body.length < 60000) init.keepalive = true;
+  const res = await fetch(`https://api.github.com/gists/${gistId}`, init);
   if (!res.ok) throw new Error(`Gist PATCH ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
 async function gistCreate(token, files) {
   const res = await fetch("https://api.github.com/gists", {
     method: "POST",
+    cache: "no-store",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
     body: JSON.stringify({ files, description: "Bibliothèque d'outils Claude", public: false })
   });
@@ -722,15 +741,25 @@ async function performSync(opts) {
         const file = data.files && data.files[SYNC_FILE_NAME];
         if (file) {
           const content = (file.truncated && file.raw_url)
-            ? await (await fetch(file.raw_url)).text()
+            ? await (await fetch(file.raw_url + "?_cb=" + Date.now(), { cache: "no-store" })).text()
             : file.content;
           const parsed = JSON.parse(content);
           remoteTools = Array.isArray(parsed.tools) ? parsed.tools : [];
         }
       } catch (e) {
-        console.warn("Pull failed, will recreate gist:", e);
-        syncCfgSet({ gistId: "" });
-        gistId = "";
+        // IMPORTANT : on ne recrée un Gist QUE si le Gist n'existe vraiment plus (404).
+        // Pour toute autre erreur (réseau, rate-limit, cache, 5xx…), on ABANDONNE ce cycle de sync
+        // SANS toucher au gistId — sinon un simple incident réseau ferait diverger l'appareil
+        // vers un nouveau Gist isolé (cause majeure de désynchronisation).
+        if (e && e.status === 404) {
+          console.warn("Gist introuvable (404) — un nouveau sera créé:", e);
+          syncCfgSet({ gistId: "" });
+          gistId = "";
+        } else {
+          console.warn("Pull échoué (réseau/transient) — sync annulée, gistId conservé:", e);
+          if (!opts.silent) toast("Sync impossible (réseau) — réessai plus tard", "error");
+          return; // on sort proprement : pas de push, pas de perte de gistId
+        }
       }
     }
     const localTools = await listTools();
@@ -744,11 +773,12 @@ async function performSync(opts) {
     };
     const fileSpec = { [SYNC_FILE_NAME]: { content: JSON.stringify(payload, null, 2) } };
     if (gistId) {
-      await gistPatch(gistId, cfg.token, fileSpec);
+      await gistPatch(gistId, cfg.token, fileSpec, { keepalive: !!opts.keepalive });
     } else {
       const created = await gistCreate(cfg.token, fileSpec);
       syncCfgSet({ gistId: created.id });
     }
+    __dirtySinceSync = false; // push réussi → plus de modifs en attente
     syncCfgSet({ last: Date.now() });
     refresh();
     if (!opts.silent) {
@@ -765,12 +795,40 @@ async function performSync(opts) {
   }
 }
 
+// Push-only rapide (sans pull/merge) : utilisé quand l'onglet se met en arrière-plan.
+// On veut juste garantir que la modif locale atteint le Gist avant le gel des timers.
+async function pushLocalNow(keepalive) {
+  const cfg = syncCfg();
+  if (!cfg.token || !cfg.gistId) return;
+  try {
+    const localTools = await listTools();
+    const payload = { version: 2, exportedAt: new Date().toISOString(), tools: localTools.map(stripForSync) };
+    const fileSpec = { [SYNC_FILE_NAME]: { content: JSON.stringify(payload, null, 2) } };
+    await gistPatch(cfg.gistId, cfg.token, fileSpec, { keepalive: !!keepalive });
+    __dirtySinceSync = false;
+    syncCfgSet({ last: Date.now() });
+  } catch (e) { console.warn("pushLocalNow échoué:", e); }
+}
+
 let autoSyncTimer = null;
+let __dirtySinceSync = false; // une modif locale attend d'être poussée
 function scheduleAutoSync() {
   const cfg = syncCfg();
   if (!cfg.auto || !cfg.token) return;
+  __dirtySinceSync = true;
   if (autoSyncTimer) clearTimeout(autoSyncTimer);
-  autoSyncTimer = setTimeout(() => performSync({ silent: true }), 4000);
+  // 1,5 s (au lieu de 4 s) : réduit la fenêtre où une modif mobile est perdue si l'onglet passe en arrière-plan
+  autoSyncTimer = setTimeout(() => performSync({ silent: true }), 1500);
+}
+
+// Vide immédiatement tous les buffers de stockage en attente vers IndexedDB
+// (utilisé quand l'onglet passe en arrière-plan, avant un push d'urgence).
+async function flushAllStorageBuffersNow() {
+  const ids = [...__storageFlushTimers.keys()];
+  for (const id of ids) {
+    clearTimeout(__storageFlushTimers.get(id));
+    try { await flushStorageBuffer(id); } catch (e) {}
+  }
 }
 
 // Recovery : impose le contenu LOCAL comme référence (écrase le Gist sans fusion).
@@ -2127,15 +2185,31 @@ function init() {
     }
     updateSyncStatus();
   });
-  // Au retour de focus (changement d'appli/onglet, surtout sur mobile) : on pull,
-  // puis on recharge l'outil ouvert s'il a un contenu plus récent.
+  // Changement de visibilité de l'onglet
   document.addEventListener("visibilitychange", async () => {
-    if (document.visibilityState !== "visible") return;
     const c = syncCfg();
+    if (document.visibilityState === "hidden") {
+      // L'onglet part en arrière-plan (mobile : changement d'appli). Les timers vont être gelés,
+      // donc on POUSSE MAINTENANT toute modif en attente (push-only, sans pull qui pourrait
+      // échouer et tout annuler), avec keepalive pour survivre au gel.
+      if (c.token && c.auto && __dirtySinceSync) {
+        await flushAllStorageBuffersNow();
+        await pushLocalNow(true);
+      }
+      return;
+    }
+    // Retour au premier plan : on pull, puis on recharge l'outil ouvert s'il a changé.
     if (c.token && c.auto && Date.now() - (c.last || 0) > 8000) {
       await withTimeout(performSync({ silent: true }), 6000);
     }
     maybeReloadOpenViewer("focus");
+  });
+  // Filet supplémentaire : juste avant que la page soit déchargée/mise en cache
+  window.addEventListener("pagehide", () => {
+    const c = syncCfg();
+    if (c.token && c.auto && __dirtySinceSync) {
+      flushAllStorageBuffersNow().then(() => pushLocalNow(true));
+    }
   });
 }
 init();
