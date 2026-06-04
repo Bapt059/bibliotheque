@@ -556,6 +556,11 @@ window.toggleTheme = function() {};
       </label>
       <div id="sync-status" class="text-xs text-slate-500 dark:text-slate-400 min-h-[1em]"></div>
       <div id="sync-version" class="text-xs text-slate-400 dark:text-slate-500"></div>
+      <details class="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-xs">
+        <summary class="cursor-pointer font-medium">En cas de désynchronisation entre appareils</summary>
+        <p class="mt-2 text-slate-600 dark:text-slate-400">Si un appareil affiche un contenu périmé, ouvre la bibliothèque sur l'appareil qui a la <strong>bonne version</strong>, puis clique ci-dessous : son contenu deviendra la référence et écrasera le Gist. Les autres appareils le récupéreront ensuite.</p>
+        <button id="sync-force-push" class="mt-2 px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-900/30">⬆ Cet appareil fait référence</button>
+      </details>
       <div class="flex flex-wrap justify-end gap-2 pt-2">
         <button id="sync-force-reload" class="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/30" title="Vide le cache navigateur et recharge la dernière version depuis GitHub">🔁 Forcer mise à jour</button>
         <button id="sync-disconnect" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-sm hover:bg-red-50 hover:border-red-200 hover:text-red-600">Déconnecter</button>
@@ -766,6 +771,38 @@ function scheduleAutoSync() {
   if (!cfg.auto || !cfg.token) return;
   if (autoSyncTimer) clearTimeout(autoSyncTimer);
   autoSyncTimer = setTimeout(() => performSync({ silent: true }), 4000);
+}
+
+// Recovery : impose le contenu LOCAL comme référence (écrase le Gist sans fusion).
+// Sert à sortir d'un état divergent où le Gist contient une version périmée "plus récente".
+async function forcePushThisDevice() {
+  const cfg = syncCfg();
+  if (!cfg.token) { openSyncModal(); return; }
+  if (syncing) { toast("Sync en cours, réessaie dans un instant", "info"); return; }
+  syncing = true;
+  const btn = document.getElementById("sync-btn");
+  if (btn) btn.textContent = "⏳";
+  try {
+    const localTools = await listTools();
+    const now = Date.now();
+    // Bump tous les updatedAt → cet appareil devient le plus "récent" partout
+    for (const t of localTools) { t.updatedAt = now; await saveTool(t, { preserveTime: true, skipSync: true }); }
+    const payload = { version: 2, exportedAt: new Date().toISOString(), tools: localTools.map(stripForSync) };
+    const fileSpec = { [SYNC_FILE_NAME]: { content: JSON.stringify(payload, null, 2) } };
+    let gistId = cfg.gistId;
+    if (gistId) await gistPatch(gistId, cfg.token, fileSpec);
+    else { const created = await gistCreate(cfg.token, fileSpec); syncCfgSet({ gistId: created.id }); }
+    syncCfgSet({ last: Date.now() });
+    const visible = localTools.filter(t => !t.deleted).length;
+    toast(`Cet appareil est désormais la référence (${visible} outil(s))`, "success");
+  } catch (e) {
+    console.error("Force push error:", e);
+    toast("Échec : " + e.message, "error");
+  } finally {
+    syncing = false;
+    if (btn) btn.textContent = "🔄";
+    updateSyncStatus();
+  }
 }
 
 function openSyncModal() {
@@ -1230,52 +1267,101 @@ function topModal() {
 //============================================================
 let currentViewerToolId = null;
 
-async function openViewer(tool) {
-  currentViewerToolId = tool.id;
-  // Re-lecture depuis IndexedDB pour avoir la version la plus fraîche possible
-  // (au cas où un sync silencieux aurait écrit du neuf depuis le dernier render)
-  try {
-    const fresh = await getToolById(tool.id);
-    if (fresh) tool = normalizeTool(fresh);
-  } catch (e) {}
-  tool.lastOpened = Date.now();
-  // preserveTime + skipSync : "consulter" n'est PAS une modification du contenu,
-  // donc on ne bumpe pas updatedAt (sinon ça écrase les éditions venues d'un autre appareil)
-  saveTool(tool, { preserveTime: true, skipSync: true });
-  document.getElementById("viewer-title").textContent = tool.name;
+const VIEWER_LOADING_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{height:100%;margin:0}
+  body{display:flex;align-items:center;justify-content:center;background:#0a0a14;color:#00f0ff;font-family:ui-monospace,Menlo,monospace}
+  .box{text-align:center}
+  .spin{width:40px;height:40px;margin:0 auto 16px;border:3px solid #2a2a4e;border-top-color:#fcee0a;border-radius:50%;animation:s 0.8s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style></head><body><div class="box"><div class="spin"></div><div>Synchronisation…</div></div></body></html>`;
+
+function isViewerOpen() {
+  return !document.getElementById("viewer-modal").classList.contains("hidden");
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(resolve, ms))
+  ]);
+}
+
+// Construit l'iframe avec la version la plus fraîche de l'outil + mémorise une signature
+// du contenu réellement chargé (source + data) pour décider plus tard s'il faut recharger.
+function mountToolInViewer(tool) {
   const iframe = document.getElementById("viewer-iframe");
+  document.getElementById("viewer-title").textContent = tool.name;
   iframe.removeAttribute("src");
   iframe.srcdoc = buildToolHTML(tool);
-  iframe.dataset.openedUpdatedAt = String(tool.updatedAt || 0);
+  iframe.dataset.openedToolId = tool.id;
+  iframe.dataset.openedSig = contentSig(tool);
+}
+
+function contentSig(tool) {
+  // Signature basée sur le CONTENU (pas le timestamp) : si elle ne change pas,
+  // inutile de recharger le viewer (évite le ping-pong entre appareils).
+  try { return (tool.source || "").length + "|" + JSON.stringify(tool.data || {}); }
+  catch (e) { return String(Date.now()); }
+}
+
+async function openViewer(tool) {
+  const toolId = tool.id;
+  currentViewerToolId = toolId;
   showModal("viewer-modal");
 
-  // Si on n'a jamais sync (ou pas récemment) ET qu'on est configuré : déclenche un pull silencieux,
-  // puis (si l'outil ouvert a été mis à jour par le pull) recharge le viewer automatiquement.
+  // 1) Affiche un écran de chargement le temps de récupérer la dernière version
+  const iframe = document.getElementById("viewer-iframe");
+  iframe.removeAttribute("src");
+  iframe.srcdoc = VIEWER_LOADING_HTML;
+  document.getElementById("viewer-title").textContent = tool.name;
+
+  // 2) PULL BLOQUANT avant de charger l'outil : garantit que l'artefact démarre
+  //    avec les données les plus récentes (et non une version locale périmée qui,
+  //    en se ré-enregistrant au chargement, écraserait les éditions d'un autre appareil).
   const cfg = (typeof syncCfg === "function") ? syncCfg() : null;
-  if (cfg && cfg.token && cfg.gistId) {
-    const last = cfg.last || 0;
-    const stale = Date.now() - last > 10000; // pas de sync dans les 10 dernières secondes
-    if (stale) {
-      performSync({ silent: true }).then(async () => {
-        if (currentViewerToolId !== tool.id) return; // user a fermé entretemps
-        const updated = await getToolById(tool.id);
-        if (!updated) return;
-        const newTime = updated.updatedAt || 0;
-        const oldTime = parseInt(iframe.dataset.openedUpdatedAt || "0", 10);
-        if (newTime > oldTime) {
-          toast("Nouvelle version reçue — rechargement du viewer", "info");
-          iframe.srcdoc = buildToolHTML(normalizeTool(updated));
-          iframe.dataset.openedUpdatedAt = String(newTime);
-        }
-      });
-    }
+  if (cfg && cfg.token && cfg.gistId && Date.now() - (cfg.last || 0) > 8000) {
+    await withTimeout(performSync({ silent: true }), 6000);
   }
+
+  // L'utilisateur a pu fermer / changer d'outil pendant le pull
+  if (currentViewerToolId !== toolId) return;
+
+  // 3) Relit la version fraîche depuis IndexedDB et la monte
+  let fresh = tool;
+  try {
+    const f = await getToolById(toolId);
+    if (f) fresh = normalizeTool(f);
+  } catch (e) {}
+  if (currentViewerToolId !== toolId) return;
+
+  fresh.lastOpened = Date.now();
+  saveTool(fresh, { preserveTime: true, skipSync: true }); // "consulter" ne doit pas bumper updatedAt
+  mountToolInViewer(fresh);
+}
+
+// Recharge l'iframe ouverte si une version au CONTENU différent est arrivée (ex: pull en arrière-plan),
+// sauf si l'utilisateur vient d'écrire (édition en cours) → on ne détruit pas son travail.
+async function maybeReloadOpenViewer(reason) {
+  if (!isViewerOpen() || !currentViewerToolId) return;
+  const iframe = document.getElementById("viewer-iframe");
+  if (iframe.dataset.openedToolId !== currentViewerToolId) return;
+  const lastWrite = __lastLocalWrite.get(currentViewerToolId) || 0;
+  if (Date.now() - lastWrite < 5000) return; // édition active : on ne touche pas
+  let updated;
+  try { updated = await getToolById(currentViewerToolId); } catch (e) { return; }
+  if (!updated) return;
+  const fresh = normalizeTool(updated);
+  if (contentSig(fresh) === iframe.dataset.openedSig) return; // contenu identique → rien à faire
+  toast("Nouvelle version reçue — actualisation", "info");
+  mountToolInViewer(fresh);
 }
 
 function closeViewer() {
   const iframe = document.getElementById("viewer-iframe");
   iframe.removeAttribute("srcdoc");
   iframe.src = "about:blank";
+  delete iframe.dataset.openedToolId;
+  delete iframe.dataset.openedSig;
   hideModal("viewer-modal");
   currentViewerToolId = null;
 }
@@ -1334,10 +1420,12 @@ window.addEventListener("message", async (e) => {
 // de marteler IndexedDB sur des frappes rapides.
 const __storageBuffer = new Map(); // toolId -> [{ type, key, value }]
 const __storageFlushTimers = new Map();
+const __lastLocalWrite = new Map(); // toolId -> timestamp du dernier write local (anti-clobber)
 
 function handleStorageMessage(msg) {
   const toolId = msg.toolId;
   if (!toolId) return;
+  __lastLocalWrite.set(toolId, Date.now());
   if (!__storageBuffer.has(toolId)) __storageBuffer.set(toolId, []);
   __storageBuffer.get(toolId).push({ type: msg.type, key: msg.key, value: msg.value });
   if (__storageFlushTimers.has(toolId)) clearTimeout(__storageFlushTimers.get(toolId));
@@ -1952,6 +2040,10 @@ document.getElementById("sync-force-reload").addEventListener("click", () => {
   if (!confirm("Vider le cache et recharger ? La page va se rafraîchir pour récupérer la toute dernière version depuis GitHub.")) return;
   forceReloadApp();
 });
+document.getElementById("sync-force-push").addEventListener("click", () => {
+  if (!confirm("Faire de CET appareil la référence ?\n\nSon contenu actuel écrasera le Gist et sera propagé aux autres appareils. À utiliser uniquement depuis l'appareil qui a la bonne version.")) return;
+  forcePushThisDevice();
+});
 
 //============================================================
 // Export / Import
@@ -2023,24 +2115,27 @@ function init() {
     const cfg = syncCfg();
     if (cfg.token && cfg.auto) {
       setTimeout(() => performSync({ silent: true }), 800);
-      // Polling : tous les 60s, fait une sync silencieuse pour récupérer les changements
-      // venant d'autres appareils même quand cet appareil n'édite rien.
+      // Polling de fond : récupère les changements des autres appareils quand cet appareil est inactif.
+      // On NE poll PAS quand un outil est ouvert : sa fraîcheur est garantie par le pull-before-open
+      // et par le rechargement au retour de focus (évite que les données bougent sous une iframe affichée).
       setInterval(() => {
-        if (document.visibilityState !== "visible") return; // pas de spam quand l'onglet est en arrière-plan
+        if (document.visibilityState !== "visible") return;
+        if (isViewerOpen()) return;
         const c = syncCfg();
         if (c.token && c.auto) performSync({ silent: true });
       }, 60000);
     }
     updateSyncStatus();
   });
-  // Pull dès que l'onglet redevient visible (après changement d'appli sur mobile)
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      const c = syncCfg();
-      if (c.token && c.auto && Date.now() - (c.last || 0) > 10000) {
-        performSync({ silent: true });
-      }
+  // Au retour de focus (changement d'appli/onglet, surtout sur mobile) : on pull,
+  // puis on recharge l'outil ouvert s'il a un contenu plus récent.
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible") return;
+    const c = syncCfg();
+    if (c.token && c.auto && Date.now() - (c.last || 0) > 8000) {
+      await withTimeout(performSync({ silent: true }), 6000);
     }
+    maybeReloadOpenViewer("focus");
   });
 }
 init();
