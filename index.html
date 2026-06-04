@@ -657,15 +657,15 @@ function syncCfgSet(patch) {
 }
 
 async function gistGet(gistId, token) {
-  // cache:no-store + cache-buster + no-cache headers : sinon le navigateur (surtout mobile)
-  // peut renvoyer une réponse en cache → on lit alors un Gist PÉRIMÉ et l'appareil paraît "désync".
+  // Anti-cache SANS en-têtes personnalisés : cache:"no-store" (le navigateur n'utilise/ne stocke
+  // pas le cache) + cache-buster dans l'URL. On évite Cache-Control/If-None-Match en EN-TÊTE de requête
+  // car ce sont des en-têtes "non-simples" qui déclenchent un preflight CORS refusé par l'API GitHub
+  // (→ erreur réseau "Sync impossible"). Seuls Authorization + Accept sont envoyés (autorisés par GitHub).
   const res = await fetch(`https://api.github.com/gists/${gistId}?_cb=${Date.now()}`, {
     cache: "no-store",
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "Cache-Control": "no-cache, no-store, max-age=0",
-      "If-None-Match": "" // neutralise la revalidation ETag → force un corps frais
+      Accept: "application/vnd.github+json"
     }
   });
   if (!res.ok) {
